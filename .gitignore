@@ -6,6 +6,8 @@ __pycache__/
 # C extensions
 *.so
 
+clf.pkl
+
 # Distribution / packaging
 .Python
 build/

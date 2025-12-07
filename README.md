@@ -1,2 +1,2 @@
-# resume-screening-nlp-model
-A NLP model for show the resume type 
+# Resume-Screening-App
+Resume Screening App With Python and Machine Learning 
