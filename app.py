@@ -1,23 +1,22 @@
-# you need to install all these in your terminal
-# pip install streamlit
-# pip install scikit-learn
-# pip install python-docx
-# pip install PyPDF2
-
-
-import streamlit as st
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from pydantic import BaseModel
 import pickle
-import docx  # Extract text from Word file
-import PyPDF2  # Extract text from PDF
+import docx
+import PyPDF2
 import re
+import io
+import time
+import uvicorn
+import logging
 
-# Load pre-trained model and TF-IDF vectorizer (ensure these are saved earlier)
-svc_model = pickle.load(open('clf.pkl', 'rb'))  # Example file name, adjust as needed
-tfidf = pickle.load(open('tfidf.pkl', 'rb'))  # Example file name, adjust as needed
-le = pickle.load(open('encoder.pkl', 'rb'))  # Example file name, adjust as needed
+app = FastAPI(title="Resume Screening API", version="1.0")
 
+# Load your existing models (same as Streamlit)
+svc_model = pickle.load(open('clf.pkl', 'rb'))
+tfidf = pickle.load(open('tfidf.pkl', 'rb'))
+le = pickle.load(open('encoder.pkl', 'rb'))
 
-# Function to clean resume text
+# YOUR EXISTING FUNCTIONS (unchanged)
 def cleanResume(txt):
     cleanText = re.sub('http\S+\s', ' ', txt)
     cleanText = re.sub('RT|cc', ' ', cleanText)
@@ -28,8 +27,6 @@ def cleanResume(txt):
     cleanText = re.sub('\s+', ' ', cleanText)
     return cleanText
 
-
-# Function to extract text from PDF
 def extract_text_from_pdf(file):
     pdf_reader = PyPDF2.PdfReader(file)
     text = ''
@@ -37,8 +34,6 @@ def extract_text_from_pdf(file):
         text += page.extract_text()
     return text
 
-
-# Function to extract text from DOCX
 def extract_text_from_docx(file):
     doc = docx.Document(file)
     text = ''
@@ -46,80 +41,77 @@ def extract_text_from_docx(file):
         text += paragraph.text + '\n'
     return text
 
-
-# Function to extract text from TXT with explicit encoding handling
 def extract_text_from_txt(file):
-    # Try using utf-8 encoding for reading the text file
     try:
         text = file.read().decode('utf-8')
     except UnicodeDecodeError:
-        # In case utf-8 fails, try 'latin-1' encoding as a fallback
         text = file.read().decode('latin-1')
     return text
 
-
-# Function to handle file upload and extraction
 def handle_file_upload(uploaded_file):
-    file_extension = uploaded_file.name.split('.')[-1].lower()
+    file_extension = uploaded_file.filename.split('.')[-1].lower()
+    file_content = uploaded_file.file.read()
+    
     if file_extension == 'pdf':
-        text = extract_text_from_pdf(uploaded_file)
+        return extract_text_from_pdf(io.BytesIO(file_content))
     elif file_extension == 'docx':
-        text = extract_text_from_docx(uploaded_file)
+        return extract_text_from_docx(io.BytesIO(file_content))
     elif file_extension == 'txt':
-        text = extract_text_from_txt(uploaded_file)
+        return extract_text_from_txt(io.BytesIO(file_content))
     else:
-        raise ValueError("Unsupported file type. Please upload a PDF, DOCX, or TXT file.")
-    return text
+        raise ValueError("Unsupported file type. Please upload PDF, DOCX, or TXT")
 
-
-# Function to predict the category of a resume
+# YOUR EXISTING PREDICTION FUNCTION (unchanged)
 def pred(input_resume):
-    # Preprocess the input text (e.g., cleaning, etc.)
     cleaned_text = cleanResume(input_resume)
-
-    # Vectorize the cleaned text using the same TF-IDF vectorizer used during training
     vectorized_text = tfidf.transform([cleaned_text])
-
-    # Convert sparse matrix to dense
     vectorized_text = vectorized_text.toarray()
-
-    # Prediction
     predicted_category = svc_model.predict(vectorized_text)
-
-    # get name of predicted category
     predicted_category_name = le.inverse_transform(predicted_category)
+    return predicted_category_name[0]
 
-    return predicted_category_name[0]  # Return the category name
+# API Endpoints
+@app.post("/predict")
+async def predict_resume(file: UploadFile = File(...)):
+    """Upload resume file and get predicted category"""
+    start_time = time.time()
+    
+    try:
+        # Extract text from uploaded file
+        resume_text = handle_file_upload(file)
+        
+        # Predict category (your exact logic)
+        category = pred(resume_text)
+        processing_time = (time.time() - start_time) * 1000
+        
+        return {
+            "category": category,
+            "processing_time_ms": round(processing_time, 2),
+            "message": "Resume analyzed successfully"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
+@app.post("/predict/text")
+async def predict_resume_text(resume_text: str):
+    """Direct text input for testing"""
+    start_time = time.time()
+    
+    try:
+        category = pred(resume_text)
+        processing_time = (time.time() - start_time) * 1000
+        
+        return {
+            "category": category,
+            "processing_time_ms": round(processing_time, 2),
+            "message": "Text analyzed successfully"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
-# Streamlit app layout
-def main():
-    st.set_page_config(page_title="Resume Category Prediction", page_icon="📄", layout="wide")
-
-    st.title("Resume Category Prediction App")
-    st.markdown("Upload a resume in PDF, TXT, or DOCX format and get the predicted job category.")
-
-    # File upload section
-    uploaded_file = st.file_uploader("Upload a Resume", type=["pdf", "docx", "txt"])
-
-    if uploaded_file is not None:
-        # Extract text from the uploaded file
-        try:
-            resume_text = handle_file_upload(uploaded_file)
-            st.write("Successfully extracted the text from the uploaded resume.")
-
-            # Display extracted text (optional)
-            if st.checkbox("Show extracted text", False):
-                st.text_area("Extracted Resume Text", resume_text, height=300)
-
-            # Make prediction
-            st.subheader("Predicted Category")
-            category = pred(resume_text)
-            st.write(f"The predicted category of the uploaded resume is: **{category}**")
-
-        except Exception as e:
-            st.error(f"Error processing the file: {str(e)}")
-
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "model": "loaded"}
 
 if __name__ == "__main__":
-    main()
+    uvicorn.run(app, host="0.0.0.0", port=8000)
