@@ -7,6 +7,6 @@ variable "instance_type" {
 }
 
 variable "ami_id" {
-  description = "ami-0f5ee92e2d63afc18"
-  type        = string
-}
+  description = "AMI ID for Ubuntu 22.04"
+  default     = "ami-0f5ee92e2d63afc18"
+}  
