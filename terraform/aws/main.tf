@@ -27,13 +27,16 @@ resource "aws_security_group" "ml_sg" {
   }
 }
 
-resource "aws_instance" "ml" {
-  ami           = "ami-0f5ee92e2d63afc18" # Ubuntu 22.04 ap-south-1
+resource "aws_instance" "ml_vm" {
+  ami           = var.ami_id
   instance_type = var.instance_type
-  key_name      = var.key_name
-  security_groups = [aws_security_group.ml_sg.name]
+
+  user_data = file("${path.module}/user_data.sh")
+
+  vpc_security_group_ids = [aws_security_group.ml_sg.id]
 
   tags = {
-    Name = "ml-benchmark-aws"
+    Name = "ml-research-vm"
   }
 }
+

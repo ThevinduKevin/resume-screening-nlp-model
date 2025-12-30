@@ -6,6 +6,7 @@ variable "instance_type" {
   default = "t3.micro"
 }
 
-variable "key_name" {
-  description = "EC2 key pair name"
+variable "ami_id" {
+  description = "ami-0f5ee92e2d63afc18"
+  type        = string
 }
