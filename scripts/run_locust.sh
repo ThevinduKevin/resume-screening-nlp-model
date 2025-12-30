@@ -1,0 +1,20 @@
+#!/bin/bash
+set -e
+
+USERS_LIST=("1" "10" "100" "1000" "2000")
+SPAWN_RATE=("1" "10" "10" "10" "10")
+
+for i in ${!USERS_LIST[@]}; do
+  USERS=${USERS_LIST[$i]}
+  RATE=${SPAWN_RATE[$i]}
+
+  echo "Running load test: users=$USERS rate=$RATE"
+
+  locust -f locustfile.py \
+    --host http://$TARGET_IP:8000 \
+    --headless \
+    -u $USERS \
+    -r $RATE \
+    --run-time 2m \
+    --csv results/locust_${USERS}
+done
