@@ -3,5 +3,5 @@ output "public_ip" {
 }
 
 output "instance_id" {  # ADD THIS
-  value = aws_instance.ml_api.id
+  value = aws_instance.ml_vm.id
 }
