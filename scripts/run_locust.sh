@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+mkdir -p results
+
 USERS_LIST=("1" "10" "100" "1000" "2000")
 SPAWN_RATE=("1" "10" "10" "10" "10")
 
