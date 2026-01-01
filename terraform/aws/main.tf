@@ -4,7 +4,7 @@ provider "aws" {
 
 # SECURITY GROUP
 resource "aws_security_group" "ml_sg" {
-  name = "ml-sg"
+  name = "ml-sg-tf"
 
   ingress {
     from_port   = 8000
@@ -29,14 +29,14 @@ resource "aws_security_group" "ml_sg" {
 }
 
 # S3 BUCKET (FOR LARGE FILES)
-resource "aws_s3_bucket" "ml_bucket" {
-  bucket        = var.bucket_name
-  force_destroy = true
-}
+# resource "aws_s3_bucket" "ml_bucket" {
+#   bucket        = var.bucket_name
+#   force_destroy = true
+# }
 
 # IAM ROLE FOR EC2 → S3 ACCESS
 resource "aws_iam_role" "ec2_role" {
-  name = "ec2-s3-role"
+  name = "ec2-s3-role-tf"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -62,15 +62,15 @@ resource "aws_iam_role_policy" "s3_policy" {
         "s3:ListBucket"
       ]
       Resource = [
-        aws_s3_bucket.ml_bucket.arn,
-        "${aws_s3_bucket.ml_bucket.arn}/*"
+        "arn:aws:s3:::resume-screening-ml-models-thevindu",
+        "arn:aws:s3:::resume-screening-ml-models-thevindu/*"
       ]
     }]
   })
 }
 
 resource "aws_iam_instance_profile" "ec2_profile" {
-  name = "ec2-s3-profile"
+  name = "ec2-s3-profile-tf"
   role = aws_iam_role.ec2_role.name
 }
 
