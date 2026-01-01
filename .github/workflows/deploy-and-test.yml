@@ -27,32 +27,26 @@ jobs:
 
       - name: Run Locust tests (headless)
         env:
-          # ensure results directory
           RESULTS_DIR: results/aws
         run: |
           mkdir -p $RESULTS_DIR
 
-          # get public IP from Terraform output
           cd terraform/aws
           TARGET_IP=$(terraform output -raw public_ip)
           cd ../..
 
           echo "Target IP: $TARGET_IP"
 
-          # install locust + psutil on the runner
           python3 -m pip install --upgrade pip
-          pip install locust psutil
+          # add zope-event explicitly
+          pip install locust psutil zope-event
 
-          # run system metrics collection in background
           python3 scripts/collect_metrics.py &
 
-          # export IP for run_locust.sh
           export TARGET_IP=$TARGET_IP
 
-          # run locust scenarios
           bash scripts/run_locust.sh
 
-          # move results into results/aws if needed
           mv results/locust_*.csv $RESULTS_DIR/ || true
           mv results/system_metrics.csv $RESULTS_DIR/ || true
 
