@@ -37,18 +37,26 @@ jobs:
 
           echo "Target IP: $TARGET_IP"
 
-          python3 -m pip install --upgrade pip
-          # add zope-event explicitly
+          # Create virtual environment to isolate dependencies
+          python3 -m venv locust-env
+          source locust-env/bin/activate
+
+          pip install --upgrade pip
           pip install locust psutil zope-event
 
-          python3 scripts/collect_metrics.py &
+          # Start metrics collection in background
+          python scripts/collect_metrics.py &
 
+          # Export IP for run_locust.sh
           export TARGET_IP=$TARGET_IP
 
+          # Run load tests
           bash scripts/run_locust.sh
 
+          # Move results
           mv results/locust_*.csv $RESULTS_DIR/ || true
           mv results/system_metrics.csv $RESULTS_DIR/ || true
+
 
       - name: Destroy AWS
         if: always()
