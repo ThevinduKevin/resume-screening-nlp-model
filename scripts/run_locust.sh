@@ -12,7 +12,8 @@ for i in ${!USERS_LIST[@]}; do
 
   echo "Running load test: users=$USERS rate=$RATE"
 
-  locust -f locustfile.py \
+  python3 -m locust \
+    -f locustfile.py \
     --host http://$TARGET_IP:8000 \
     --headless \
     -u $USERS \
