@@ -9,14 +9,20 @@ import time
 import uvicorn
 import logging
 
+# Define Request Model for JSON body parsing
+class ResumeTextRequest(BaseModel):
+    resume_text: str
+
 app = FastAPI(title="Resume Screening API", version="1.0")
 
-# Load your existing models (same as Streamlit)
-svc_model = pickle.load(open('clf.pkl', 'rb'))
-tfidf = pickle.load(open('tfidf.pkl', 'rb'))
-le = pickle.load(open('encoder.pkl', 'rb'))
+# Load models
+try:
+    svc_model = pickle.load(open('clf.pkl', 'rb'))
+    tfidf = pickle.load(open('tfidf.pkl', 'rb'))
+    le = pickle.load(open('encoder.pkl', 'rb'))
+except FileNotFoundError:
+    print("Error: Model files not found. Check S3 download in user_data.")
 
-# YOUR EXISTING FUNCTIONS (unchanged)
 def cleanResume(txt):
     cleanText = re.sub('http\S+\s', ' ', txt)
     cleanText = re.sub('RT|cc', ' ', cleanText)
@@ -27,41 +33,6 @@ def cleanResume(txt):
     cleanText = re.sub('\s+', ' ', cleanText)
     return cleanText
 
-def extract_text_from_pdf(file):
-    pdf_reader = PyPDF2.PdfReader(file)
-    text = ''
-    for page in pdf_reader.pages:
-        text += page.extract_text()
-    return text
-
-def extract_text_from_docx(file):
-    doc = docx.Document(file)
-    text = ''
-    for paragraph in doc.paragraphs:
-        text += paragraph.text + '\n'
-    return text
-
-def extract_text_from_txt(file):
-    try:
-        text = file.read().decode('utf-8')
-    except UnicodeDecodeError:
-        text = file.read().decode('latin-1')
-    return text
-
-def handle_file_upload(uploaded_file):
-    file_extension = uploaded_file.filename.split('.')[-1].lower()
-    file_content = uploaded_file.file.read()
-    
-    if file_extension == 'pdf':
-        return extract_text_from_pdf(io.BytesIO(file_content))
-    elif file_extension == 'docx':
-        return extract_text_from_docx(io.BytesIO(file_content))
-    elif file_extension == 'txt':
-        return extract_text_from_txt(io.BytesIO(file_content))
-    else:
-        raise ValueError("Unsupported file type. Please upload PDF, DOCX, or TXT")
-
-# YOUR EXISTING PREDICTION FUNCTION (unchanged)
 def pred(input_resume):
     cleaned_text = cleanResume(input_resume)
     vectorized_text = tfidf.transform([cleaned_text])
@@ -70,37 +41,13 @@ def pred(input_resume):
     predicted_category_name = le.inverse_transform(predicted_category)
     return predicted_category_name[0]
 
-# API Endpoints
-@app.post("/predict")
-async def predict_resume(file: UploadFile = File(...)):
-    """Upload resume file and get predicted category"""
-    start_time = time.time()
-    
-    try:
-        # Extract text from uploaded file
-        resume_text = handle_file_upload(file)
-        
-        # Predict category (your exact logic)
-        category = pred(resume_text)
-        processing_time = (time.time() - start_time) * 1000
-        
-        return {
-            "category": category,
-            "processing_time_ms": round(processing_time, 2),
-            "message": "Resume analyzed successfully"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
-
 @app.post("/predict/text")
-async def predict_resume_text(resume_text: str):
-    """Direct text input for testing"""
+async def predict_resume_text(request: ResumeTextRequest):
+    """Direct text input fixed for Locust JSON compatibility"""
     start_time = time.time()
-    
     try:
-        category = pred(resume_text)
+        category = pred(request.resume_text)
         processing_time = (time.time() - start_time) * 1000
-        
         return {
             "category": category,
             "processing_time_ms": round(processing_time, 2),
