@@ -36,7 +36,7 @@ resource "aws_security_group" "ml_sg" {
 
 # IAM ROLE FOR EC2 → S3 ACCESS
 resource "aws_iam_role" "ec2_role" {
-  name = "ec2-s3-role-tf"
+  name = "ec2-s3-role-tf-v2"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -70,7 +70,7 @@ resource "aws_iam_role_policy" "s3_policy" {
 }
 
 resource "aws_iam_instance_profile" "ec2_profile" {
-  name = "ec2-s3-profile-tf"
+  name = "ec2-s3-profile-tf-v2"
   role = aws_iam_role.ec2_role.name
 }
 
