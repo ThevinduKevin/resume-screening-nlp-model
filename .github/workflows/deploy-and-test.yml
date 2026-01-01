@@ -25,37 +25,51 @@ jobs:
           terraform init
           terraform apply -auto-approve
 
-      - name: Run Locust tests (headless)
+      - name: Debug & Run Locust tests (headless)
         env:
           RESULTS_DIR: results/aws
         run: |
           mkdir -p $RESULTS_DIR
-
+          
           cd terraform/aws
           TARGET_IP=$(terraform output -raw public_ip)
           cd ../..
 
           echo "Target IP: $TARGET_IP"
 
-          # Create virtual environment to isolate dependencies
+          # Wait 60s for full instance startup + API
+          echo "Waiting 60s for AWS instance + API startup..."
+          sleep 60
+
+          # Test connectivity step-by-step
+          echo "=== Testing SSH ==="
+          timeout 10 ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+            -i ~/.ssh/id_rsa ubuntu@$TARGET_IP "echo SSH_OK" || echo "SSH failed"
+
+          echo "=== Testing port 8000 ==="
+          timeout 10 bash -c "cat < /dev/null > /dev/tcp/$TARGET_IP/8000 && echo 'PORT OPEN' || echo 'PORT CLOSED'"
+
+          echo "=== Testing API endpoint ==="
+          curl -s -k -X POST http://$TARGET_IP:8000/predict \
+            -H "Content-Type: application/json" \
+            -d '{"test": "data"}' || echo "API returned: $?"
+
+          # Virtual environment for Locust
           python3 -m venv locust-env
           source locust-env/bin/activate
-
           pip install --upgrade pip
           pip install locust psutil zope-event
 
-          # Start metrics collection in background
+          # Metrics collection
           python scripts/collect_metrics.py &
 
-          # Export IP for run_locust.sh
           export TARGET_IP=$TARGET_IP
-
-          # Run load tests
           bash scripts/run_locust.sh
 
-          # Move results
+          # Results
           mv results/locust_*.csv $RESULTS_DIR/ || true
           mv results/system_metrics.csv $RESULTS_DIR/ || true
+
 
 
       - name: Destroy AWS

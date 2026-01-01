@@ -19,5 +19,7 @@ for i in ${!USERS_LIST[@]}; do
     -u $USERS \
     -r $RATE \
     --run-time 2m \
-    --csv results/locust_${USERS}
+    --csv results/locust_${USERS} \
+    --csv-full-history \
+    --logfile results/locust_${USERS}.log
 done
