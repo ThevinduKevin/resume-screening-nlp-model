@@ -6,8 +6,10 @@ on:
 jobs:
   aws:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -19,64 +21,98 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
 
-      - name: Deploy AWS
+      # -------------------------------
+      # DEPLOY INFRASTRUCTURE
+      # -------------------------------
+      - name: Deploy AWS Infrastructure
         working-directory: terraform/aws
         run: |
           terraform init
           terraform apply -auto-approve
 
+      # -------------------------------
+      # SETUP SSH (CRITICAL)
+      # -------------------------------
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H 65.1.95.248 >> ~/.ssh/known_hosts || true
+
+      # -------------------------------
+      # RUN LOCUST & DEBUG
+      # -------------------------------
       - name: Debug & Run Locust tests (headless)
         env:
           RESULTS_DIR: results/aws
         run: |
+          set -e
+
           mkdir -p $RESULTS_DIR
-          
+
           cd terraform/aws
           TARGET_IP=$(terraform output -raw public_ip)
           cd ../..
 
           echo "Target IP: $TARGET_IP"
 
-          # Wait 60s for full instance startup + API
-          echo "Waiting 60s for AWS instance + API startup..."
+          echo "Waiting 60s for EC2 + API startup..."
           sleep 60
 
-          # Test connectivity step-by-step
+          # ---- SSH TEST ----
           echo "=== Testing SSH ==="
-          timeout 10 ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
-            -i ~/.ssh/id_rsa ubuntu@$TARGET_IP "echo SSH_OK" || echo "SSH failed"
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@$TARGET_IP "echo SSH_OK"
 
+          # ---- START API (systemd) ----
+          echo "=== Starting ML API ==="
+          ssh -i ~/.ssh/id_rsa ubuntu@$TARGET_IP << 'EOF'
+            sudo systemctl restart ml-api || true
+            sleep 5
+            ss -tulpn | grep 8000
+          EOF
+
+          # ---- PORT CHECK ----
           echo "=== Testing port 8000 ==="
-          timeout 10 bash -c "cat < /dev/null > /dev/tcp/$TARGET_IP/8000 && echo 'PORT OPEN' || echo 'PORT CLOSED'"
+          timeout 10 bash -c "cat < /dev/null > /dev/tcp/$TARGET_IP/8000"
+          echo "PORT 8000 OPEN"
 
+          # ---- API CHECK ----
           echo "=== Testing API endpoint ==="
-          curl -s -k -X POST http://$TARGET_IP:8000/predict \
+          curl -f -X POST http://$TARGET_IP:8000/predict/text \
             -H "Content-Type: application/json" \
-            -d '{"test": "data"}' || echo "API returned: $?"
+            -d '{"text":"hello"}'
 
-          # Virtual environment for Locust
+          # -------------------------------
+          # LOCUST SETUP
+          # -------------------------------
           python3 -m venv locust-env
           source locust-env/bin/activate
+
           pip install --upgrade pip
           pip install locust psutil zope-event
 
-          # Metrics collection
+          # Start system metrics collection
           python scripts/collect_metrics.py &
 
           export TARGET_IP=$TARGET_IP
           bash scripts/run_locust.sh
 
-          # Results
+          # Save results
           mv results/locust_*.csv $RESULTS_DIR/ || true
           mv results/system_metrics.csv $RESULTS_DIR/ || true
 
-
-
-      - name: Destroy AWS
+      # -------------------------------
+      # DESTROY INFRASTRUCTURE
+      # -------------------------------
+      - name: Destroy AWS Infrastructure
         if: always()
         working-directory: terraform/aws
         run: terraform destroy -auto-approve
 
+      # -------------------------------
+      # UPLOAD RESULTS
+      # -------------------------------
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
