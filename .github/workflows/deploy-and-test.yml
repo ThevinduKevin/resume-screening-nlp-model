@@ -21,9 +21,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
 
-      # -------------------------------
       # GENERATE SSH KEY
-      # -------------------------------
       - name: Generate SSH key pair
         run: |
           mkdir -p ~/.ssh
@@ -31,18 +29,14 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           echo "SSH_PUBLIC_KEY=$(cat ~/.ssh/id_rsa.pub)" >> $GITHUB_ENV
 
-      # -------------------------------
       # DEPLOY INFRASTRUCTURE
-      # -------------------------------
       - name: Deploy AWS Infrastructure
         working-directory: terraform/aws
         run: |
           terraform init
           terraform apply -auto-approve -var="ssh_public_key=$SSH_PUBLIC_KEY"
 
-      # -------------------------------
       # SETUP SSH (CRITICAL)
-      # -------------------------------
       - name: Setup SSH known hosts
         run: |
           cd terraform/aws
@@ -50,9 +44,7 @@ jobs:
           cd ../..
           ssh-keyscan -H $TARGET_IP >> ~/.ssh/known_hosts || true
 
-      # -------------------------------
       # RUN LOCUST & DEBUG
-      # -------------------------------
       - name: Debug & Run Locust tests (headless)
         env:
           RESULTS_DIR: results/aws
@@ -67,19 +59,30 @@ jobs:
 
           echo "Target IP: $TARGET_IP"
 
-          echo "Waiting 90s for EC2 user_data to complete..."
-          sleep 90
+          echo "Waiting 60s for EC2 to be ready for SSH..."
+          sleep 60
 
           # ---- SSH TEST ----
           echo "=== Testing SSH ==="
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@$TARGET_IP "echo SSH_OK"
 
+          # ---- WAIT FOR USER_DATA TO COMPLETE ----
+          echo "=== Waiting for user_data.sh to complete ==="
+          for i in {1..30}; do
+            if ssh -i ~/.ssh/id_rsa ubuntu@$TARGET_IP "sudo grep -q 'Setup complete' /var/log/user_data.log 2>/dev/null"; then
+              echo "user_data.sh completed!"
+              break
+            fi
+            echo "Attempt $i/30: user_data still running, waiting 10s..."
+            sleep 10
+          done
+
           # ---- CHECK API STATUS ----
           echo "=== Checking ML API service status ==="
           ssh -i ~/.ssh/id_rsa ubuntu@$TARGET_IP << 'EOF'
             # Check user_data log for completion
-            echo "--- user_data log (last 20 lines) ---"
-            sudo tail -20 /var/log/user_data.log || true
+            echo "--- user_data log (last 30 lines) ---"
+            sudo tail -30 /var/log/user_data.log || true
             
             # Check if service exists and its status
             echo "--- ml-api service status ---"
@@ -133,17 +136,13 @@ jobs:
           mv results/locust_*.csv $RESULTS_DIR/ || true
           mv results/system_metrics.csv $RESULTS_DIR/ || true
 
-      # -------------------------------
       # DESTROY INFRASTRUCTURE
-      # -------------------------------
       - name: Destroy AWS Infrastructure
         if: always()
         working-directory: terraform/aws
         run: terraform destroy -auto-approve -var="ssh_public_key=$SSH_PUBLIC_KEY"
 
-      # -------------------------------
       # UPLOAD RESULTS
-      # -------------------------------
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
