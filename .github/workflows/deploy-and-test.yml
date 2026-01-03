@@ -38,7 +38,10 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H 65.1.95.248 >> ~/.ssh/known_hosts || true
+          cd terraform/aws
+          TARGET_IP=$(terraform output -raw public_ip)
+          cd ../..
+          ssh-keyscan -H $TARGET_IP >> ~/.ssh/known_hosts || true
 
       # -------------------------------
       # RUN LOCUST & DEBUG
