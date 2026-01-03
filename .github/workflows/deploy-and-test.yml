@@ -32,6 +32,15 @@ jobs:
           echo "SSH_PUBLIC_KEY=$(cat ~/.ssh/id_rsa.pub)" >> $GITHUB_ENV
 
       # -------------------------------
+      # UPLOAD MODELS TO S3
+      # -------------------------------
+      - name: Upload ML models to S3
+        run: |
+          aws s3 cp clf.pkl s3://resume-screening-ml-models-thevindu/clf.pkl
+          aws s3 cp tfidf.pkl s3://resume-screening-ml-models-thevindu/tfidf.pkl
+          aws s3 cp encoder.pkl s3://resume-screening-ml-models-thevindu/encoder.pkl
+
+      # -------------------------------
       # DEPLOY INFRASTRUCTURE
       # -------------------------------
       - name: Deploy AWS Infrastructure
