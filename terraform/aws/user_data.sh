@@ -25,7 +25,27 @@ echo "[*] Installing Python dependencies"
 pip3 install --upgrade pip
 pip3 install -r requirements.txt
 
-echo "[*] Starting FastAPI (Uvicorn) on 0.0.0.0:8000"
-nohup uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1 >> /var/log/ml-api.log 2>&1 &
+echo "[*] Creating systemd service for ML API"
+cat > /etc/systemd/system/ml-api.service << 'EOF'
+[Unit]
+Description=ML API FastAPI Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/ml-api
+ExecStart=/usr/local/bin/uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+echo "[*] Starting ML API service"
+systemctl daemon-reload
+systemctl enable ml-api
+systemctl start ml-api
 
 echo "=== Setup complete === $(date)" >> $LOG

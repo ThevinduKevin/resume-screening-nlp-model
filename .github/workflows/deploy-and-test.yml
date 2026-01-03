@@ -67,25 +67,46 @@ jobs:
 
           echo "Target IP: $TARGET_IP"
 
-          echo "Waiting 60s for EC2 + API startup..."
-          sleep 60
+          echo "Waiting 90s for EC2 user_data to complete..."
+          sleep 90
 
           # ---- SSH TEST ----
           echo "=== Testing SSH ==="
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@$TARGET_IP "echo SSH_OK"
 
-          # ---- START API (systemd) ----
-          echo "=== Starting ML API ==="
+          # ---- CHECK API STATUS ----
+          echo "=== Checking ML API service status ==="
           ssh -i ~/.ssh/id_rsa ubuntu@$TARGET_IP << 'EOF'
-            sudo systemctl restart ml-api || true
-            sleep 5
-            ss -tulpn | grep 8000
+            # Check user_data log for completion
+            echo "--- user_data log (last 20 lines) ---"
+            sudo tail -20 /var/log/user_data.log || true
+            
+            # Check if service exists and its status
+            echo "--- ml-api service status ---"
+            sudo systemctl status ml-api || true
+            
+            # If service failed, try to restart it
+            if ! sudo systemctl is-active --quiet ml-api; then
+              echo "Service not running, attempting restart..."
+              sudo systemctl restart ml-api || true
+              sleep 5
+            fi
+            
+            # Show listening ports
+            echo "--- Listening on port 8000 ---"
+            ss -tulpn | grep 8000 || echo "Port 8000 not yet listening"
           EOF
 
-          # ---- PORT CHECK ----
-          echo "=== Testing port 8000 ==="
-          timeout 10 bash -c "cat < /dev/null > /dev/tcp/$TARGET_IP/8000"
-          echo "PORT 8000 OPEN"
+          # ---- WAIT FOR API TO BE READY ----
+          echo "=== Waiting for API to be ready ==="
+          for i in {1..12}; do
+            if curl -sf http://$TARGET_IP:8000/docs > /dev/null 2>&1; then
+              echo "API is ready!"
+              break
+            fi
+            echo "Attempt $i/12: API not ready, waiting 10s..."
+            sleep 10
+          done
 
           # ---- API CHECK ----
           echo "=== Testing API endpoint ==="
