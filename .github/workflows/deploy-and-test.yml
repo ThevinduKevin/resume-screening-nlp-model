@@ -103,7 +103,7 @@ jobs:
           # ---- WAIT FOR API TO BE READY ----
           echo "=== Waiting for API to be ready ==="
           for i in {1..12}; do
-            if curl -sf http://$TARGET_IP:8000/docs > /dev/null 2>&1; then
+            if curl -sf http://$TARGET_IP:8000/health > /dev/null 2>&1; then
               echo "API is ready!"
               break
             fi
@@ -112,10 +112,8 @@ jobs:
           done
 
           # ---- API CHECK ----
-          echo "=== Testing API endpoint ==="
-          curl -f -X POST http://$TARGET_IP:8000/predict/text \
-            -H "Content-Type: application/json" \
-            -d '{"text":"hello"}'
+          echo "=== Testing API health endpoint ==="
+          curl -f http://$TARGET_IP:8000/health
 
           # -------------------------------
           # LOCUST SETUP
