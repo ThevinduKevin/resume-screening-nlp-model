@@ -36,7 +36,9 @@ jobs:
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          cat > ~/.ssh/id_rsa << 'SSHKEY'
+          ${{ secrets.EC2_SSH_KEY }}
+          SSHKEY
           chmod 600 ~/.ssh/id_rsa
           cd terraform/aws
           TARGET_IP=$(terraform output -raw public_ip)
