@@ -21,9 +21,12 @@ aws s3 cp s3://resume-screening-ml-models-thevindu/clf.pkl clf.pkl
 aws s3 cp s3://resume-screening-ml-models-thevindu/tfidf.pkl tfidf.pkl
 aws s3 cp s3://resume-screening-ml-models-thevindu/encoder.pkl encoder.pkl
 
-echo "[*] Installing Python dependencies"
-pip3 install --upgrade pip
-pip3 install -r requirements.txt
+echo "[*] Creating Python virtual environment"
+python3 -m venv /opt/ml-api/venv
+
+echo "[*] Installing Python dependencies in venv"
+/opt/ml-api/venv/bin/pip install --upgrade pip
+/opt/ml-api/venv/bin/pip install -r requirements.txt
 
 echo "[*] Creating systemd service for ML API"
 cat > /etc/systemd/system/ml-api.service << 'EOF'
@@ -35,7 +38,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/opt/ml-api
-ExecStart=/usr/local/bin/uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1
+ExecStart=/opt/ml-api/venv/bin/uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1
 Restart=always
 RestartSec=3
 
