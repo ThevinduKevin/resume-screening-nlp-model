@@ -6,8 +6,10 @@ on:
 jobs:
   aws:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -19,16 +21,44 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
 
-      - name: Deploy AWS
+      # -------------------------------
+      # GENERATE SSH KEY
+      # -------------------------------
+      - name: Generate SSH key pair
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N "" -q
+          chmod 600 ~/.ssh/id_rsa
+          echo "SSH_PUBLIC_KEY=$(cat ~/.ssh/id_rsa.pub)" >> $GITHUB_ENV
+
+      # -------------------------------
+      # DEPLOY INFRASTRUCTURE
+      # -------------------------------
+      - name: Deploy AWS Infrastructure
         working-directory: terraform/aws
         run: |
           terraform init
-          terraform apply -auto-approve
+          terraform apply -auto-approve -var="ssh_public_key=$SSH_PUBLIC_KEY"
 
-      - name: Run Locust tests (headless)
+      # -------------------------------
+      # SETUP SSH (CRITICAL)
+      # -------------------------------
+      - name: Setup SSH known hosts
+        run: |
+          cd terraform/aws
+          TARGET_IP=$(terraform output -raw public_ip)
+          cd ../..
+          ssh-keyscan -H $TARGET_IP >> ~/.ssh/known_hosts || true
+
+      # -------------------------------
+      # RUN LOCUST & DEBUG
+      # -------------------------------
+      - name: Debug & Run Locust tests (headless)
         env:
           RESULTS_DIR: results/aws
         run: |
+          set -e
+
           mkdir -p $RESULTS_DIR
 
           cd terraform/aws
@@ -37,35 +67,327 @@ jobs:
 
           echo "Target IP: $TARGET_IP"
 
-          # Create virtual environment to isolate dependencies
+          echo "Waiting 60s for EC2 + API startup..."
+          sleep 60
+
+          # ---- SSH TEST ----
+          echo "=== Testing SSH ==="
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@$TARGET_IP "echo SSH_OK"
+
+          # ---- START API (systemd) ----
+          echo "=== Starting ML API ==="
+          ssh -i ~/.ssh/id_rsa ubuntu@$TARGET_IP << 'EOF'
+            sudo systemctl restart ml-api || true
+            sleep 5
+            ss -tulpn | grep 8000
+          EOF
+
+          # ---- PORT CHECK ----
+          echo "=== Testing port 8000 ==="
+          timeout 10 bash -c "cat < /dev/null > /dev/tcp/$TARGET_IP/8000"
+          echo "PORT 8000 OPEN"
+
+          # ---- API CHECK ----
+          echo "=== Testing API endpoint ==="
+          curl -f -X POST http://$TARGET_IP:8000/predict/text \
+            -H "Content-Type: application/json" \
+            -d '{"text":"hello"}'
+
+          # -------------------------------
+          # LOCUST SETUP
+          # -------------------------------
           python3 -m venv locust-env
           source locust-env/bin/activate
 
           pip install --upgrade pip
           pip install locust psutil zope-event
 
-          # Start metrics collection in background
+          # Start system metrics collection
           python scripts/collect_metrics.py &
 
-          # Export IP for run_locust.sh
           export TARGET_IP=$TARGET_IP
-
-          # Run load tests
           bash scripts/run_locust.sh
 
-          # Move results
+          # Save results
           mv results/locust_*.csv $RESULTS_DIR/ || true
           mv results/system_metrics.csv $RESULTS_DIR/ || true
 
-
-      - name: Destroy AWS
+      # -------------------------------
+      # DESTROY INFRASTRUCTURE
+      # -------------------------------
+      - name: Destroy AWS Infrastructure
         if: always()
         working-directory: terraform/aws
-        run: terraform destroy -auto-approve
+        run: terraform destroy -auto-approve -var="ssh_public_key=$SSH_PUBLIC_KEY"
 
+      # -------------------------------
+      # UPLOAD RESULTS
+      # -------------------------------
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: aws-results
           path: results/aws/
+
+  # ===========================================
+  # AZURE JOB (COMMENTED OUT)
+  # ===========================================
+  # azure:
+  #   runs-on: ubuntu-latest
+
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+
+  #     - name: Setup Terraform
+  #       uses: hashicorp/setup-terraform@v3
+
+  #     - name: Azure Login
+  #       uses: azure/login@v2
+  #       with:
+  #         creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+  #     # -------------------------------
+  #     # GENERATE SSH KEY
+  #     # -------------------------------
+  #     - name: Generate SSH key pair
+  #       run: |
+  #         mkdir -p ~/.ssh
+  #         ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N "" -q
+  #         chmod 600 ~/.ssh/id_rsa
+  #         echo "SSH_PUBLIC_KEY=$(cat ~/.ssh/id_rsa.pub)" >> $GITHUB_ENV
+
+  #     # -------------------------------
+  #     # DEPLOY INFRASTRUCTURE
+  #     # -------------------------------
+  #     - name: Deploy Azure Infrastructure
+  #       working-directory: terraform/azure
+  #       run: |
+  #         terraform init
+  #         terraform apply -auto-approve -var="ssh_public_key=$SSH_PUBLIC_KEY"
+
+  #     # -------------------------------
+  #     # SETUP SSH (CRITICAL)
+  #     # -------------------------------
+  #     - name: Setup SSH known hosts
+  #       run: |
+  #         cd terraform/azure
+  #         TARGET_IP=$(terraform output -raw public_ip)
+  #         cd ../..
+  #         ssh-keyscan -H $TARGET_IP >> ~/.ssh/known_hosts || true
+
+  #     # -------------------------------
+  #     # RUN LOCUST & DEBUG
+  #     # -------------------------------
+  #     - name: Debug & Run Locust tests (headless)
+  #       env:
+  #         RESULTS_DIR: results/azure
+  #       run: |
+  #         set -e
+
+  #         mkdir -p $RESULTS_DIR
+
+  #         cd terraform/azure
+  #         TARGET_IP=$(terraform output -raw public_ip)
+  #         cd ../..
+
+  #         echo "Target IP: $TARGET_IP"
+
+  #         echo "Waiting 60s for VM + API startup..."
+  #         sleep 60
+
+  #         # ---- SSH TEST ----
+  #         echo "=== Testing SSH ==="
+  #         ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa azureuser@$TARGET_IP "echo SSH_OK"
+
+  #         # ---- START API (systemd) ----
+  #         echo "=== Starting ML API ==="
+  #         ssh -i ~/.ssh/id_rsa azureuser@$TARGET_IP << 'EOF'
+  #           sudo systemctl restart ml-api || true
+  #           sleep 5
+  #           ss -tulpn | grep 8000
+  #         EOF
+
+  #         # ---- PORT CHECK ----
+  #         echo "=== Testing port 8000 ==="
+  #         timeout 10 bash -c "cat < /dev/null > /dev/tcp/$TARGET_IP/8000"
+  #         echo "PORT 8000 OPEN"
+
+  #         # ---- API CHECK ----
+  #         echo "=== Testing API endpoint ==="
+  #         curl -f -X POST http://$TARGET_IP:8000/predict/text \
+  #           -H "Content-Type: application/json" \
+  #           -d '{"text":"hello"}'
+
+  #         # -------------------------------
+  #         # LOCUST SETUP
+  #         # -------------------------------
+  #         python3 -m venv locust-env
+  #         source locust-env/bin/activate
+
+  #         pip install --upgrade pip
+  #         pip install locust psutil zope-event
+
+  #         # Start system metrics collection
+  #         python scripts/collect_metrics.py &
+
+  #         export TARGET_IP=$TARGET_IP
+  #         bash scripts/run_locust.sh
+
+  #         # Save results
+  #         mv results/locust_*.csv $RESULTS_DIR/ || true
+  #         mv results/system_metrics.csv $RESULTS_DIR/ || true
+
+  #     # -------------------------------
+  #     # DESTROY INFRASTRUCTURE
+  #     # -------------------------------
+  #     - name: Destroy Azure Infrastructure
+  #       if: always()
+  #       working-directory: terraform/azure
+  #       run: terraform destroy -auto-approve -var="ssh_public_key=$SSH_PUBLIC_KEY"
+
+  #     # -------------------------------
+  #     # UPLOAD RESULTS
+  #     # -------------------------------
+  #     - name: Upload results
+  #       if: always()
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: azure-results
+  #         path: results/azure/
+
+  # ===========================================
+  # GCP JOB (COMMENTED OUT)
+  # ===========================================
+  # gcp:
+  #   runs-on: ubuntu-latest
+
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+
+  #     - name: Setup Terraform
+  #       uses: hashicorp/setup-terraform@v3
+
+  #     - name: Authenticate to Google Cloud
+  #       uses: google-github-actions/auth@v2
+  #       with:
+  #         credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+  #     - name: Set up Cloud SDK
+  #       uses: google-github-actions/setup-gcloud@v2
+
+  #     # -------------------------------
+  #     # GENERATE SSH KEY
+  #     # -------------------------------
+  #     - name: Generate SSH key pair
+  #       run: |
+  #         mkdir -p ~/.ssh
+  #         ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N "" -q
+  #         chmod 600 ~/.ssh/id_rsa
+  #         echo "SSH_PUBLIC_KEY=$(cat ~/.ssh/id_rsa.pub)" >> $GITHUB_ENV
+
+  #     # -------------------------------
+  #     # DEPLOY INFRASTRUCTURE
+  #     # -------------------------------
+  #     - name: Deploy GCP Infrastructure
+  #       working-directory: terraform/gcp
+  #       run: |
+  #         terraform init
+  #         terraform apply -auto-approve \
+  #           -var="ssh_public_key=$SSH_PUBLIC_KEY" \
+  #           -var="project_id=${{ secrets.GCP_PROJECT_ID }}"
+
+  #     # -------------------------------
+  #     # SETUP SSH (CRITICAL)
+  #     # -------------------------------
+  #     - name: Setup SSH known hosts
+  #       run: |
+  #         cd terraform/gcp
+  #         TARGET_IP=$(terraform output -raw public_ip)
+  #         cd ../..
+  #         ssh-keyscan -H $TARGET_IP >> ~/.ssh/known_hosts || true
+
+  #     # -------------------------------
+  #     # RUN LOCUST & DEBUG
+  #     # -------------------------------
+  #     - name: Debug & Run Locust tests (headless)
+  #       env:
+  #         RESULTS_DIR: results/gcp
+  #       run: |
+  #         set -e
+
+  #         mkdir -p $RESULTS_DIR
+
+  #         cd terraform/gcp
+  #         TARGET_IP=$(terraform output -raw public_ip)
+  #         cd ../..
+
+  #         echo "Target IP: $TARGET_IP"
+
+  #         echo "Waiting 60s for VM + API startup..."
+  #         sleep 60
+
+  #         # ---- SSH TEST ----
+  #         echo "=== Testing SSH ==="
+  #         ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@$TARGET_IP "echo SSH_OK"
+
+  #         # ---- START API (systemd) ----
+  #         echo "=== Starting ML API ==="
+  #         ssh -i ~/.ssh/id_rsa ubuntu@$TARGET_IP << 'EOF'
+  #           sudo systemctl restart ml-api || true
+  #           sleep 5
+  #           ss -tulpn | grep 8000
+  #         EOF
+
+  #         # ---- PORT CHECK ----
+  #         echo "=== Testing port 8000 ==="
+  #         timeout 10 bash -c "cat < /dev/null > /dev/tcp/$TARGET_IP/8000"
+  #         echo "PORT 8000 OPEN"
+
+  #         # ---- API CHECK ----
+  #         echo "=== Testing API endpoint ==="
+  #         curl -f -X POST http://$TARGET_IP:8000/predict/text \
+  #           -H "Content-Type: application/json" \
+  #           -d '{"text":"hello"}'
+
+  #         # -------------------------------
+  #         # LOCUST SETUP
+  #         # -------------------------------
+  #         python3 -m venv locust-env
+  #         source locust-env/bin/activate
+
+  #         pip install --upgrade pip
+  #         pip install locust psutil zope-event
+
+  #         # Start system metrics collection
+  #         python scripts/collect_metrics.py &
+
+  #         export TARGET_IP=$TARGET_IP
+  #         bash scripts/run_locust.sh
+
+  #         # Save results
+  #         mv results/locust_*.csv $RESULTS_DIR/ || true
+  #         mv results/system_metrics.csv $RESULTS_DIR/ || true
+
+  #     # -------------------------------
+  #     # DESTROY INFRASTRUCTURE
+  #     # -------------------------------
+  #     - name: Destroy GCP Infrastructure
+  #       if: always()
+  #       working-directory: terraform/gcp
+  #       run: |
+  #         terraform destroy -auto-approve \
+  #           -var="ssh_public_key=$SSH_PUBLIC_KEY" \
+  #           -var="project_id=${{ secrets.GCP_PROJECT_ID }}"
+
+  #     # -------------------------------
+  #     # UPLOAD RESULTS
+  #     # -------------------------------
+  #     - name: Upload results
+  #       if: always()
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: gcp-results
+  #         path: results/gcp/

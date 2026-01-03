@@ -20,6 +20,6 @@ resource "google_compute_instance" "ml" {
   }
 
   metadata = {
-    ssh-keys = "ubuntu:${file("~/.ssh/id_rsa.pub")}"
+    ssh-keys = "ubuntu:${var.ssh_public_key}"
   }
 }
