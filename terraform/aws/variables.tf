@@ -15,3 +15,8 @@ variable "bucket_name" {
   description = "S3 bucket for ML files"
   default     = "resume-screening-ml-models-thevindu"
 }
+
+variable "ssh_public_key" {
+  description = "SSH public key for EC2 access"
+  type        = string
+}
