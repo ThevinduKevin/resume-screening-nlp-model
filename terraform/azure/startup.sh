@@ -20,19 +20,18 @@ git lfs install
 mkdir -p /opt/ml-api
 cd /opt/ml-api
 
-echo "[*] Cloning repository with LFS files"
-# Clone with LFS files included
-export GIT_LFS_SKIP_SMUDGE=0
-git clone https://github.com/ThevinduKevin/resume-screening-nlp-model.git repo
+echo "[*] Cloning repository (api-debug branch) with LFS files"
+# Clone the api-debug branch with LFS files
+git clone --branch api-debug https://github.com/ThevinduKevin/resume-screening-nlp-model.git repo
 cd /opt/ml-api/repo
 
-# Verify LFS files were downloaded
-echo "[*] Checking LFS files..."
-ls -la *.pkl || echo "No pkl files in root"
-git lfs ls-files
+# Force pull LFS files
+echo "[*] Pulling LFS files..."
+git lfs pull
 
-# Force pull LFS files if needed
-git lfs pull --include="*.pkl"
+# Verify files
+echo "[*] Checking pkl files..."
+ls -la *.pkl
 
 echo "[*] Creating Python virtual environment"
 python3 -m venv /opt/ml-api/venv
