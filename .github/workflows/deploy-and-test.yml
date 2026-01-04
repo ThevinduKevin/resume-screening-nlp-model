@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
 
 jobs:
+  # ===========================================
+  # AWS JOB
+  # ===========================================
   aws:
     runs-on: ubuntu-latest
     permissions:
@@ -23,7 +26,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
 
-      # GENERATE SSH KEY
       - name: Generate SSH key pair
         run: |
           mkdir -p ~/.ssh
@@ -31,14 +33,12 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           echo "SSH_PUBLIC_KEY=$(cat ~/.ssh/id_rsa.pub)" >> $GITHUB_ENV
 
-      # DEPLOY INFRASTRUCTURE
       - name: Deploy AWS Infrastructure
         working-directory: terraform/aws
         run: |
           terraform init
           terraform apply -auto-approve -var="ssh_public_key=$SSH_PUBLIC_KEY"
 
-      # SETUP SSH (CRITICAL)
       - name: Setup SSH known hosts
         run: |
           cd terraform/aws
@@ -46,8 +46,7 @@ jobs:
           cd ../..
           ssh-keyscan -H $TARGET_IP >> ~/.ssh/known_hosts || true
 
-      # RUN LOCUST & DEBUG
-      - name: Debug & Run Locust tests (headless)
+      - name: Run Locust tests
         env:
           RESULTS_DIR: results/aws
         run: |
@@ -60,15 +59,12 @@ jobs:
           cd ../..
 
           echo "Target IP: $TARGET_IP"
-
           echo "Waiting 60s for EC2 to be ready for SSH..."
           sleep 60
 
-          # ---- SSH TEST ----
           echo "=== Testing SSH ==="
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@$TARGET_IP "echo SSH_OK"
 
-          # ---- WAIT FOR USER_DATA TO COMPLETE ----
           echo "=== Waiting for user_data.sh to complete ==="
           for i in {1..30}; do
             if ssh -i ~/.ssh/id_rsa ubuntu@$TARGET_IP "sudo grep -q 'Setup complete' /var/log/user_data.log 2>/dev/null"; then
@@ -79,30 +75,24 @@ jobs:
             sleep 10
           done
 
-          # ---- CHECK API STATUS ----
           echo "=== Checking ML API service status ==="
           ssh -i ~/.ssh/id_rsa ubuntu@$TARGET_IP << 'EOF'
-            # Check user_data log for completion
             echo "--- user_data log (last 30 lines) ---"
             sudo tail -30 /var/log/user_data.log || true
             
-            # Check if service exists and its status
             echo "--- ml-api service status ---"
             sudo systemctl status ml-api || true
             
-            # If service failed, try to restart it
             if ! sudo systemctl is-active --quiet ml-api; then
               echo "Service not running, attempting restart..."
               sudo systemctl restart ml-api || true
               sleep 5
             fi
             
-            # Show listening ports
             echo "--- Listening on port 8000 ---"
             ss -tulpn | grep 8000 || echo "Port 8000 not yet listening"
           EOF
 
-          # ---- WAIT FOR API TO BE READY ----
           echo "=== Waiting for API to be ready ==="
           for i in {1..12}; do
             if curl -sf http://$TARGET_IP:8000/health > /dev/null 2>&1; then
@@ -113,317 +103,299 @@ jobs:
             sleep 10
           done
 
-          # ---- API CHECK ----
           echo "=== Testing API health endpoint ==="
           curl -f http://$TARGET_IP:8000/health
 
-          # -------------------------------
-          # LOCUST SETUP
-          # -------------------------------
           python3 -m venv locust-env
           source locust-env/bin/activate
 
           pip install --upgrade pip
           pip install locust psutil zope-event
 
-          # Start system metrics collection
           python scripts/collect_metrics.py &
 
           export TARGET_IP=$TARGET_IP
           bash scripts/run_locust.sh
 
-          # Save results
           mv results/locust_*.csv $RESULTS_DIR/ || true
+          mv results/locust_*.log $RESULTS_DIR/ || true
           mv results/system_metrics.csv $RESULTS_DIR/ || true
 
-      # DESTROY INFRASTRUCTURE
       - name: Destroy AWS Infrastructure
         if: always()
         working-directory: terraform/aws
         run: terraform destroy -auto-approve -var="ssh_public_key=$SSH_PUBLIC_KEY"
 
-      # UPLOAD RESULTS
-      - name: Upload results
+      - name: Upload AWS results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: aws-results
           path: results/aws/
 
-      # COMMIT RESULTS TO REPOSITORY
-      # - name: Commit results to repository
-      #   if: always()
-      #   run: |
-      #     git config --global user.name "github-actions[bot]"
-      #     git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-      #     # Check if there are any result files to commit
-      #     if [ -d "results/aws" ] && [ "$(ls -A results/aws 2>/dev/null)" ]; then
-      #       git add results/aws/
-      #       git commit -m "Add AWS benchmark results - $(date +'%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
-      #       git push
-      #     else
-      #       echo "No result files found to commit"
-      #     fi
+  # ===========================================
+  # AZURE JOB
+  # ===========================================
+  azure:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Generate SSH key pair
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N "" -q
+          chmod 600 ~/.ssh/id_rsa
+          echo "SSH_PUBLIC_KEY=$(cat ~/.ssh/id_rsa.pub)" >> $GITHUB_ENV
+
+      - name: Deploy Azure Infrastructure
+        working-directory: terraform/azure
+        run: |
+          terraform init
+          terraform apply -auto-approve -var="ssh_public_key=$SSH_PUBLIC_KEY"
+
+      - name: Setup SSH known hosts
+        run: |
+          cd terraform/azure
+          TARGET_IP=$(terraform output -raw public_ip)
+          cd ../..
+          ssh-keyscan -H $TARGET_IP >> ~/.ssh/known_hosts || true
+
+      - name: Run Locust tests
+        env:
+          RESULTS_DIR: results/azure
+        run: |
+          set -e
+
+          mkdir -p $RESULTS_DIR
+
+          cd terraform/azure
+          TARGET_IP=$(terraform output -raw public_ip)
+          cd ../..
+
+          echo "Target IP: $TARGET_IP"
+          echo "Waiting 60s for VM to be ready for SSH..."
+          sleep 60
+
+          echo "=== Testing SSH ==="
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa azureuser@$TARGET_IP "echo SSH_OK"
+
+          echo "=== Waiting for startup.sh to complete ==="
+          for i in {1..30}; do
+            if ssh -i ~/.ssh/id_rsa azureuser@$TARGET_IP "sudo grep -q 'Setup complete' /var/log/startup.log 2>/dev/null"; then
+              echo "startup.sh completed!"
+              break
+            fi
+            echo "Attempt $i/30: startup still running, waiting 10s..."
+            sleep 10
+          done
+
+          echo "=== Checking ML API service status ==="
+          ssh -i ~/.ssh/id_rsa azureuser@$TARGET_IP << 'EOF'
+            echo "--- startup log (last 30 lines) ---"
+            sudo tail -30 /var/log/startup.log || true
+            
+            echo "--- ml-api service status ---"
+            sudo systemctl status ml-api || true
+            
+            if ! sudo systemctl is-active --quiet ml-api; then
+              echo "Service not running, attempting restart..."
+              sudo systemctl restart ml-api || true
+              sleep 5
+            fi
+            
+            echo "--- Listening on port 8000 ---"
+            ss -tulpn | grep 8000 || echo "Port 8000 not yet listening"
+          EOF
+
+          echo "=== Waiting for API to be ready ==="
+          for i in {1..12}; do
+            if curl -sf http://$TARGET_IP:8000/health > /dev/null 2>&1; then
+              echo "API is ready!"
+              break
+            fi
+            echo "Attempt $i/12: API not ready, waiting 10s..."
+            sleep 10
+          done
+
+          echo "=== Testing API health endpoint ==="
+          curl -f http://$TARGET_IP:8000/health
+
+          python3 -m venv locust-env
+          source locust-env/bin/activate
+
+          pip install --upgrade pip
+          pip install locust psutil zope-event
+
+          python scripts/collect_metrics.py &
+
+          export TARGET_IP=$TARGET_IP
+          bash scripts/run_locust.sh
+
+          mv results/locust_*.csv $RESULTS_DIR/ || true
+          mv results/locust_*.log $RESULTS_DIR/ || true
+          mv results/system_metrics.csv $RESULTS_DIR/ || true
+
+      - name: Destroy Azure Infrastructure
+        if: always()
+        working-directory: terraform/azure
+        run: terraform destroy -auto-approve -var="ssh_public_key=$SSH_PUBLIC_KEY"
+
+      - name: Upload Azure results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: azure-results
+          path: results/azure/
 
   # ===========================================
-  # AZURE JOB (COMMENTED OUT)
+  # GCP JOB
   # ===========================================
-  # azure:
-  #   runs-on: ubuntu-latest
+  gcp:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write  # Required for Workload Identity Federation
 
-  #   steps:
-  #     - name: Checkout code
-  #       uses: actions/checkout@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-  #     - name: Setup Terraform
-  #       uses: hashicorp/setup-terraform@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
-  #     - name: Azure Login
-  #       uses: azure/login@v2
-  #       with:
-  #         creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          # Option 1: Workload Identity Federation (recommended - no JSON key needed)
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          # Option 2: JSON key (if your org allows it)
+          # credentials_json: ${{ secrets.GCP_CREDENTIALS }}
 
-  #     # -------------------------------
-  #     # GENERATE SSH KEY
-  #     # -------------------------------
-  #     - name: Generate SSH key pair
-  #       run: |
-  #         mkdir -p ~/.ssh
-  #         ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N "" -q
-  #         chmod 600 ~/.ssh/id_rsa
-  #         echo "SSH_PUBLIC_KEY=$(cat ~/.ssh/id_rsa.pub)" >> $GITHUB_ENV
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
 
-  #     # -------------------------------
-  #     # DEPLOY INFRASTRUCTURE
-  #     # -------------------------------
-  #     - name: Deploy Azure Infrastructure
-  #       working-directory: terraform/azure
-  #       run: |
-  #         terraform init
-  #         terraform apply -auto-approve -var="ssh_public_key=$SSH_PUBLIC_KEY"
+      - name: Generate SSH key pair
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N "" -q
+          chmod 600 ~/.ssh/id_rsa
+          echo "SSH_PUBLIC_KEY=$(cat ~/.ssh/id_rsa.pub)" >> $GITHUB_ENV
 
-  #     # -------------------------------
-  #     # SETUP SSH (CRITICAL)
-  #     # -------------------------------
-  #     - name: Setup SSH known hosts
-  #       run: |
-  #         cd terraform/azure
-  #         TARGET_IP=$(terraform output -raw public_ip)
-  #         cd ../..
-  #         ssh-keyscan -H $TARGET_IP >> ~/.ssh/known_hosts || true
+      - name: Deploy GCP Infrastructure
+        working-directory: terraform/gcp
+        run: |
+          terraform init
+          terraform apply -auto-approve \
+            -var="ssh_public_key=$SSH_PUBLIC_KEY" \
+            -var="project_id=${{ secrets.GCP_PROJECT_ID }}"
 
-  #     # -------------------------------
-  #     # RUN LOCUST & DEBUG
-  #     # -------------------------------
-  #     - name: Debug & Run Locust tests (headless)
-  #       env:
-  #         RESULTS_DIR: results/azure
-  #       run: |
-  #         set -e
+      - name: Setup SSH known hosts
+        run: |
+          cd terraform/gcp
+          TARGET_IP=$(terraform output -raw public_ip)
+          cd ../..
+          ssh-keyscan -H $TARGET_IP >> ~/.ssh/known_hosts || true
 
-  #         mkdir -p $RESULTS_DIR
+      - name: Run Locust tests
+        env:
+          RESULTS_DIR: results/gcp
+        run: |
+          set -e
 
-  #         cd terraform/azure
-  #         TARGET_IP=$(terraform output -raw public_ip)
-  #         cd ../..
+          mkdir -p $RESULTS_DIR
 
-  #         echo "Target IP: $TARGET_IP"
+          cd terraform/gcp
+          TARGET_IP=$(terraform output -raw public_ip)
+          cd ../..
 
-  #         echo "Waiting 60s for VM + API startup..."
-  #         sleep 60
+          echo "Target IP: $TARGET_IP"
+          echo "Waiting 60s for VM to be ready for SSH..."
+          sleep 60
 
-  #         # ---- SSH TEST ----
-  #         echo "=== Testing SSH ==="
-  #         ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa azureuser@$TARGET_IP "echo SSH_OK"
+          echo "=== Testing SSH ==="
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@$TARGET_IP "echo SSH_OK"
 
-  #         # ---- START API (systemd) ----
-  #         echo "=== Starting ML API ==="
-  #         ssh -i ~/.ssh/id_rsa azureuser@$TARGET_IP << 'EOF'
-  #           sudo systemctl restart ml-api || true
-  #           sleep 5
-  #           ss -tulpn | grep 8000
-  #         EOF
+          echo "=== Waiting for startup.sh to complete ==="
+          for i in {1..30}; do
+            if ssh -i ~/.ssh/id_rsa ubuntu@$TARGET_IP "sudo grep -q 'Setup complete' /var/log/startup.log 2>/dev/null"; then
+              echo "startup.sh completed!"
+              break
+            fi
+            echo "Attempt $i/30: startup still running, waiting 10s..."
+            sleep 10
+          done
 
-  #         # ---- PORT CHECK ----
-  #         echo "=== Testing port 8000 ==="
-  #         timeout 10 bash -c "cat < /dev/null > /dev/tcp/$TARGET_IP/8000"
-  #         echo "PORT 8000 OPEN"
+          echo "=== Checking ML API service status ==="
+          ssh -i ~/.ssh/id_rsa ubuntu@$TARGET_IP << 'EOF'
+            echo "--- startup log (last 30 lines) ---"
+            sudo tail -30 /var/log/startup.log || true
+            
+            echo "--- ml-api service status ---"
+            sudo systemctl status ml-api || true
+            
+            if ! sudo systemctl is-active --quiet ml-api; then
+              echo "Service not running, attempting restart..."
+              sudo systemctl restart ml-api || true
+              sleep 5
+            fi
+            
+            echo "--- Listening on port 8000 ---"
+            ss -tulpn | grep 8000 || echo "Port 8000 not yet listening"
+          EOF
 
-  #         # ---- API CHECK ----
-  #         echo "=== Testing API endpoint ==="
-  #         curl -f -X POST http://$TARGET_IP:8000/predict/text \
-  #           -H "Content-Type: application/json" \
-  #           -d '{"text":"hello"}'
+          echo "=== Waiting for API to be ready ==="
+          for i in {1..12}; do
+            if curl -sf http://$TARGET_IP:8000/health > /dev/null 2>&1; then
+              echo "API is ready!"
+              break
+            fi
+            echo "Attempt $i/12: API not ready, waiting 10s..."
+            sleep 10
+          done
 
-  #         # -------------------------------
-  #         # LOCUST SETUP
-  #         # -------------------------------
-  #         python3 -m venv locust-env
-  #         source locust-env/bin/activate
+          echo "=== Testing API health endpoint ==="
+          curl -f http://$TARGET_IP:8000/health
 
-  #         pip install --upgrade pip
-  #         pip install locust psutil zope-event
+          python3 -m venv locust-env
+          source locust-env/bin/activate
 
-  #         # Start system metrics collection
-  #         python scripts/collect_metrics.py &
+          pip install --upgrade pip
+          pip install locust psutil zope-event
 
-  #         export TARGET_IP=$TARGET_IP
-  #         bash scripts/run_locust.sh
+          python scripts/collect_metrics.py &
 
-  #         # Save results
-  #         mv results/locust_*.csv $RESULTS_DIR/ || true
-  #         mv results/system_metrics.csv $RESULTS_DIR/ || true
+          export TARGET_IP=$TARGET_IP
+          bash scripts/run_locust.sh
 
-  #     # -------------------------------
-  #     # DESTROY INFRASTRUCTURE
-  #     # -------------------------------
-  #     - name: Destroy Azure Infrastructure
-  #       if: always()
-  #       working-directory: terraform/azure
-  #       run: terraform destroy -auto-approve -var="ssh_public_key=$SSH_PUBLIC_KEY"
+          mv results/locust_*.csv $RESULTS_DIR/ || true
+          mv results/locust_*.log $RESULTS_DIR/ || true
+          mv results/system_metrics.csv $RESULTS_DIR/ || true
 
-  #     # -------------------------------
-  #     # UPLOAD RESULTS
-  #     # -------------------------------
-  #     - name: Upload results
-  #       if: always()
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: azure-results
-  #         path: results/azure/
+      - name: Destroy GCP Infrastructure
+        if: always()
+        working-directory: terraform/gcp
+        run: |
+          terraform destroy -auto-approve \
+            -var="ssh_public_key=$SSH_PUBLIC_KEY" \
+            -var="project_id=${{ secrets.GCP_PROJECT_ID }}"
 
-  # ===========================================
-  # GCP JOB (COMMENTED OUT)
-  # ===========================================
-  # gcp:
-  #   runs-on: ubuntu-latest
-
-  #   steps:
-  #     - name: Checkout code
-  #       uses: actions/checkout@v4
-
-  #     - name: Setup Terraform
-  #       uses: hashicorp/setup-terraform@v3
-
-  #     - name: Authenticate to Google Cloud
-  #       uses: google-github-actions/auth@v2
-  #       with:
-  #         credentials_json: ${{ secrets.GCP_CREDENTIALS }}
-
-  #     - name: Set up Cloud SDK
-  #       uses: google-github-actions/setup-gcloud@v2
-
-  #     # -------------------------------
-  #     # GENERATE SSH KEY
-  #     # -------------------------------
-  #     - name: Generate SSH key pair
-  #       run: |
-  #         mkdir -p ~/.ssh
-  #         ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N "" -q
-  #         chmod 600 ~/.ssh/id_rsa
-  #         echo "SSH_PUBLIC_KEY=$(cat ~/.ssh/id_rsa.pub)" >> $GITHUB_ENV
-
-  #     # -------------------------------
-  #     # DEPLOY INFRASTRUCTURE
-  #     # -------------------------------
-  #     - name: Deploy GCP Infrastructure
-  #       working-directory: terraform/gcp
-  #       run: |
-  #         terraform init
-  #         terraform apply -auto-approve \
-  #           -var="ssh_public_key=$SSH_PUBLIC_KEY" \
-  #           -var="project_id=${{ secrets.GCP_PROJECT_ID }}"
-
-  #     # -------------------------------
-  #     # SETUP SSH (CRITICAL)
-  #     # -------------------------------
-  #     - name: Setup SSH known hosts
-  #       run: |
-  #         cd terraform/gcp
-  #         TARGET_IP=$(terraform output -raw public_ip)
-  #         cd ../..
-  #         ssh-keyscan -H $TARGET_IP >> ~/.ssh/known_hosts || true
-
-  #     # -------------------------------
-  #     # RUN LOCUST & DEBUG
-  #     # -------------------------------
-  #     - name: Debug & Run Locust tests (headless)
-  #       env:
-  #         RESULTS_DIR: results/gcp
-  #       run: |
-  #         set -e
-
-  #         mkdir -p $RESULTS_DIR
-
-  #         cd terraform/gcp
-  #         TARGET_IP=$(terraform output -raw public_ip)
-  #         cd ../..
-
-  #         echo "Target IP: $TARGET_IP"
-
-  #         echo "Waiting 60s for VM + API startup..."
-  #         sleep 60
-
-  #         # ---- SSH TEST ----
-  #         echo "=== Testing SSH ==="
-  #         ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@$TARGET_IP "echo SSH_OK"
-
-  #         # ---- START API (systemd) ----
-  #         echo "=== Starting ML API ==="
-  #         ssh -i ~/.ssh/id_rsa ubuntu@$TARGET_IP << 'EOF'
-  #           sudo systemctl restart ml-api || true
-  #           sleep 5
-  #           ss -tulpn | grep 8000
-  #         EOF
-
-  #         # ---- PORT CHECK ----
-  #         echo "=== Testing port 8000 ==="
-  #         timeout 10 bash -c "cat < /dev/null > /dev/tcp/$TARGET_IP/8000"
-  #         echo "PORT 8000 OPEN"
-
-  #         # ---- API CHECK ----
-  #         echo "=== Testing API endpoint ==="
-  #         curl -f -X POST http://$TARGET_IP:8000/predict/text \
-  #           -H "Content-Type: application/json" \
-  #           -d '{"text":"hello"}'
-
-  #         # -------------------------------
-  #         # LOCUST SETUP
-  #         # -------------------------------
-  #         python3 -m venv locust-env
-  #         source locust-env/bin/activate
-
-  #         pip install --upgrade pip
-  #         pip install locust psutil zope-event
-
-  #         # Start system metrics collection
-  #         python scripts/collect_metrics.py &
-
-  #         export TARGET_IP=$TARGET_IP
-  #         bash scripts/run_locust.sh
-
-  #         # Save results
-  #         mv results/locust_*.csv $RESULTS_DIR/ || true
-  #         mv results/system_metrics.csv $RESULTS_DIR/ || true
-
-  #     # -------------------------------
-  #     # DESTROY INFRASTRUCTURE
-  #     # -------------------------------
-  #     - name: Destroy GCP Infrastructure
-  #       if: always()
-  #       working-directory: terraform/gcp
-  #       run: |
-  #         terraform destroy -auto-approve \
-  #           -var="ssh_public_key=$SSH_PUBLIC_KEY" \
-  #           -var="project_id=${{ secrets.GCP_PROJECT_ID }}"
-
-  #     # -------------------------------
-  #     # UPLOAD RESULTS
-  #     # -------------------------------
-  #     - name: Upload results
-  #       if: always()
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: gcp-results
-  #         path: results/gcp/
+      - name: Upload GCP results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gcp-results
+          path: results/gcp/
