@@ -166,6 +166,12 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           echo "SSH_PUBLIC_KEY=$(cat ~/.ssh/id_rsa.pub)" >> $GITHUB_ENV
 
+      - name: Cleanup existing Azure resources
+        run: |
+          az group delete --name ml-benchmark-rg --yes --no-wait || true
+          echo "Waiting for resource group deletion to complete..."
+          sleep 60
+
       - name: Deploy Azure Infrastructure
         working-directory: terraform/azure
         run: |

@@ -7,13 +7,16 @@ echo "=== Starting ML API setup ===" >> $LOG
 exec > >(tee -a $LOG) 2>&1
 
 apt-get update -y
-apt-get install -y python3-pip python3-venv git unzip wget
+apt-get install -y python3-pip python3-venv git unzip wget git-lfs
 
 mkdir -p /opt/ml-api
 cd /opt/ml-api
 
 echo "[*] Cloning repository"
+git lfs install
 git clone https://github.com/ThevinduKevin/resume-screening-nlp-model.git repo
+cd /opt/ml-api/repo
+git lfs pull
 
 echo "[*] Creating Python virtual environment"
 python3 -m venv /opt/ml-api/venv
