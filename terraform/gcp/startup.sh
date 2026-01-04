@@ -10,16 +10,29 @@ exec > >(tee -a $LOG) 2>&1
 export HOME=/root
 
 apt-get update -y
-apt-get install -y python3-pip python3-venv git unzip wget git-lfs
+apt-get install -y python3-pip python3-venv git unzip wget curl
+
+# Install git-lfs manually
+curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | bash
+apt-get install -y git-lfs
+git lfs install
 
 mkdir -p /opt/ml-api
 cd /opt/ml-api
 
-echo "[*] Cloning repository"
-git lfs install --skip-repo
+echo "[*] Cloning repository with LFS files"
+# Clone with LFS files included
+export GIT_LFS_SKIP_SMUDGE=0
 git clone https://github.com/ThevinduKevin/resume-screening-nlp-model.git repo
 cd /opt/ml-api/repo
-git lfs pull
+
+# Verify LFS files were downloaded
+echo "[*] Checking LFS files..."
+ls -la *.pkl || echo "No pkl files in root"
+git lfs ls-files
+
+# Force pull LFS files if needed
+git lfs pull --include="*.pkl"
 
 echo "[*] Creating Python virtual environment"
 python3 -m venv /opt/ml-api/venv
