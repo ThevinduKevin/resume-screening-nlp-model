@@ -6,6 +6,8 @@ on:
 jobs:
   aws:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout code
@@ -147,6 +149,22 @@ jobs:
         with:
           name: aws-results
           path: results/aws/
+
+      # COMMIT RESULTS TO REPOSITORY
+      - name: Commit results to repository
+        if: always()
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Check if there are any result files to commit
+          if [ -d "results/aws" ] && [ "$(ls -A results/aws 2>/dev/null)" ]; then
+            git add results/aws/
+            git commit -m "Add AWS benchmark results - $(date +'%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
+            git push
+          else
+            echo "No result files found to commit"
+          fi
 
   # ===========================================
   # AZURE JOB (COMMENTED OUT)
