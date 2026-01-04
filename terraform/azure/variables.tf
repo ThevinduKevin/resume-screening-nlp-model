@@ -3,15 +3,15 @@ variable "subscription_id" {
   type        = string
 }
 
-# Azure region - East US has better VM availability
+# Azure region - West US 2 typically has good B-series availability
 variable "location" {
-  default = "East US"
+  default = "West US 2"
 }
 
-# VM size - Standard_B2s has 2 vCPU, 4GB RAM (comparable to t3.micro which has 2 vCPU, 1GB)
-# For exact match to t3.micro (2 vCPU, 1GB), use Standard_B1ms
+# VM size - Standard_B1s (1 vCPU, 1GB) is more widely available than B1ms
+# Comparable to AWS t3.micro (2 vCPU, 1GB) and GCP e2-small (2 vCPU, 2GB)
 variable "vm_size" {
-  default = "Standard_B1ms"
+  default = "Standard_B1s"
 }
 
 variable "ssh_public_key" {
