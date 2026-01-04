@@ -1,3 +1,8 @@
+variable "subscription_id" {
+  description = "Azure Subscription ID"
+  type        = string
+}
+
 # Azure region - Central India is closest to ap-south-1 (Mumbai)
 variable "location" {
   default = "Central India"

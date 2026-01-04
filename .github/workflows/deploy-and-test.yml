@@ -153,6 +153,12 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Extract Azure Subscription ID
+        run: |
+          SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r '.subscriptionId')
+          echo "ARM_SUBSCRIPTION_ID=$SUBSCRIPTION_ID" >> $GITHUB_ENV
+          echo "AZURE_SUBSCRIPTION_ID=$SUBSCRIPTION_ID" >> $GITHUB_ENV
+
       - name: Generate SSH key pair
         run: |
           mkdir -p ~/.ssh
@@ -164,7 +170,9 @@ jobs:
         working-directory: terraform/azure
         run: |
           terraform init
-          terraform apply -auto-approve -var="ssh_public_key=$SSH_PUBLIC_KEY"
+          terraform apply -auto-approve \
+            -var="ssh_public_key=$SSH_PUBLIC_KEY" \
+            -var="subscription_id=$ARM_SUBSCRIPTION_ID"
 
       - name: Setup SSH known hosts
         run: |
@@ -251,7 +259,11 @@ jobs:
       - name: Destroy Azure Infrastructure
         if: always()
         working-directory: terraform/azure
-        run: terraform destroy -auto-approve -var="ssh_public_key=$SSH_PUBLIC_KEY"
+        run: |
+          terraform init
+          terraform destroy -auto-approve \
+            -var="ssh_public_key=$SSH_PUBLIC_KEY" \
+            -var="subscription_id=$ARM_SUBSCRIPTION_ID"
 
       - name: Upload Azure results
         if: always()
@@ -267,7 +279,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      id-token: write  # Required for Workload Identity Federation
+      id-token: write
 
     steps:
       - name: Checkout code
@@ -279,11 +291,7 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          # Option 1: Workload Identity Federation (recommended - no JSON key needed)
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-          # Option 2: JSON key (if your org allows it)
-          # credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -389,6 +397,7 @@ jobs:
         if: always()
         working-directory: terraform/gcp
         run: |
+          terraform init
           terraform destroy -auto-approve \
             -var="ssh_public_key=$SSH_PUBLIC_KEY" \
             -var="project_id=${{ secrets.GCP_PROJECT_ID }}"
