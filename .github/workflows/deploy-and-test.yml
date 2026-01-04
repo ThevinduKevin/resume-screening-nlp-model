@@ -170,9 +170,16 @@ jobs:
         run: |
           # Check if resource group exists
           if az group exists --name ml-benchmark-rg | grep -q true; then
-            echo "Resource group exists, deleting..."
-            az group delete --name ml-benchmark-rg --yes
-            echo "Resource group deleted successfully"
+            echo "Resource group exists, force deleting..."
+            az group delete --name ml-benchmark-rg --yes --force-deletion-types Microsoft.Compute/virtualMachines --no-wait || true
+            # Wait a bit for deletion to start
+            sleep 30
+            # Try again synchronously if it still exists
+            if az group exists --name ml-benchmark-rg | grep -q true; then
+              echo "Still exists, waiting for complete deletion..."
+              az group wait --name ml-benchmark-rg --deleted --timeout 600 || true
+            fi
+            echo "Resource group deletion complete"
           else
             echo "Resource group does not exist, proceeding..."
           fi

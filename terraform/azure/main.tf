@@ -1,11 +1,21 @@
 provider "azurerm" {
-  features {}
+  features {
+    resource_group {
+      prevent_deletion_if_contains_resources = false
+    }
+  }
   subscription_id = var.subscription_id
 }
 
 resource "azurerm_resource_group" "rg" {
   name     = "ml-benchmark-rg"
   location = var.location
+
+  # Add timeouts for slow operations
+  timeouts {
+    create = "10m"
+    delete = "30m"
+  }
 }
 
 resource "azurerm_virtual_network" "vnet" {
@@ -13,6 +23,8 @@ resource "azurerm_virtual_network" "vnet" {
   address_space       = ["10.0.0.0/16"]
   location            = var.location
   resource_group_name = azurerm_resource_group.rg.name
+
+  depends_on = [azurerm_resource_group.rg]
 }
 
 resource "azurerm_subnet" "subnet" {
@@ -28,6 +40,8 @@ resource "azurerm_public_ip" "ip" {
   resource_group_name = azurerm_resource_group.rg.name
   allocation_method   = "Static"
   sku                 = "Standard"
+
+  depends_on = [azurerm_resource_group.rg]
 }
 
 resource "azurerm_network_security_group" "nsg" {
@@ -58,6 +72,8 @@ resource "azurerm_network_security_group" "nsg" {
     source_address_prefix      = "*"
     destination_address_prefix = "*"
   }
+
+  depends_on = [azurerm_resource_group.rg]
 }
 
 resource "azurerm_network_interface" "nic" {
