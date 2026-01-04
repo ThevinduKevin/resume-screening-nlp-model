@@ -14,22 +14,19 @@ cd /opt/ml-api
 
 echo "[*] Cloning repository"
 git clone https://github.com/ThevinduKevin/resume-screening-nlp-model.git repo
-cd repo
 
 echo "[*] Creating Python virtual environment"
 python3 -m venv /opt/ml-api/venv
 
 echo "[*] Installing Python dependencies in venv"
 /opt/ml-api/venv/bin/pip install --upgrade pip
-/opt/ml-api/venv/bin/pip install -r requirements.txt
+/opt/ml-api/venv/bin/pip install -r /opt/ml-api/repo/requirements.txt
 
 # Copy necessary files to /opt/ml-api
-cp app.py /opt/ml-api/
-cp clf.pkl /opt/ml-api/
-cp tfidf.pkl /opt/ml-api/
-cp encoder.pkl /opt/ml-api/
-
-cd /opt/ml-api
+cp /opt/ml-api/repo/app.py /opt/ml-api/
+cp /opt/ml-api/repo/clf.pkl /opt/ml-api/
+cp /opt/ml-api/repo/tfidf.pkl /opt/ml-api/
+cp /opt/ml-api/repo/encoder.pkl /opt/ml-api/
 
 echo "[*] Creating systemd service for ML API"
 cat > /etc/systemd/system/ml-api.service << 'EOF'

@@ -3,9 +3,9 @@ variable "subscription_id" {
   type        = string
 }
 
-# Azure region - Central India is closest to ap-south-1 (Mumbai)
+# Azure region - East US has better VM availability
 variable "location" {
-  default = "Central India"
+  default = "East US"
 }
 
 # VM size - Standard_B2s has 2 vCPU, 4GB RAM (comparable to t3.micro which has 2 vCPU, 1GB)
