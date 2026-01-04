@@ -21,17 +21,32 @@ mkdir -p /opt/ml-api
 cd /opt/ml-api
 
 echo "[*] Cloning repository (api-debug branch) with LFS files"
-# Clone the api-debug branch with LFS files
-git clone --branch api-debug https://github.com/ThevinduKevin/resume-screening-nlp-model.git repo
+# Clone the api-debug branch with LFS files - use GIT_LFS_SKIP_SMUDGE to clone first, then pull LFS separately
+export GIT_LFS_SKIP_SMUDGE=1
+git clone --branch api-debug --single-branch https://github.com/ThevinduKevin/resume-screening-nlp-model.git repo
+unset GIT_LFS_SKIP_SMUDGE
+
 cd /opt/ml-api/repo
+
+echo "[*] Current branch:"
+git branch -v
 
 # Force pull LFS files
 echo "[*] Pulling LFS files..."
-git lfs pull
+git lfs fetch --all
+git lfs checkout
 
-# Verify files
+# Verify files exist and are not LFS pointers
 echo "[*] Checking pkl files..."
-ls -la *.pkl
+ls -la *.pkl || echo "ERROR: pkl files not found!"
+
+# Check if they are actual files or just LFS pointers
+echo "[*] File types:"
+file *.pkl || true
+
+# Verify file sizes (clf.pkl should be ~237MB)
+echo "[*] File sizes:"
+du -h *.pkl || true
 
 echo "[*] Creating Python virtual environment"
 python3 -m venv /opt/ml-api/venv
