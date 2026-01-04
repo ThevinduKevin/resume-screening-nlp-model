@@ -12,6 +12,8 @@ for i in ${!USERS_LIST[@]}; do
 
   echo "Running load test: users=$USERS rate=$RATE"
 
+  # Run Locust - allow it to complete even with some connection errors
+  # Connection errors are expected during load testing
   python -m locust \
     -f locustfile.py \
     --host http://$TARGET_IP:8000 \
@@ -21,5 +23,6 @@ for i in ${!USERS_LIST[@]}; do
     --run-time 2m \
     --csv results/locust_${USERS} \
     --csv-full-history \
-    --logfile results/locust_${USERS}.log
+    --logfile results/locust_${USERS}.log \
+    --exit-code-on-error 0
 done
