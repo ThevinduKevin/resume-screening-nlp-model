@@ -168,9 +168,14 @@ jobs:
 
       - name: Cleanup existing Azure resources
         run: |
-          az group delete --name ml-benchmark-rg --yes --no-wait || true
-          echo "Waiting for resource group deletion to complete..."
-          sleep 60
+          # Check if resource group exists
+          if az group exists --name ml-benchmark-rg | grep -q true; then
+            echo "Resource group exists, deleting..."
+            az group delete --name ml-benchmark-rg --yes
+            echo "Resource group deleted successfully"
+          else
+            echo "Resource group does not exist, proceeding..."
+          fi
 
       - name: Deploy Azure Infrastructure
         working-directory: terraform/azure

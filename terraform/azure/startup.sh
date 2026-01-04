@@ -6,6 +6,9 @@ echo "=== Starting ML API setup ===" >> $LOG
 
 exec > >(tee -a $LOG) 2>&1
 
+# Set HOME for git-lfs
+export HOME=/root
+
 apt-get update -y
 apt-get install -y python3-pip python3-venv git unzip wget git-lfs
 
@@ -13,7 +16,7 @@ mkdir -p /opt/ml-api
 cd /opt/ml-api
 
 echo "[*] Cloning repository"
-git lfs install
+git lfs install --skip-repo
 git clone https://github.com/ThevinduKevin/resume-screening-nlp-model.git repo
 cd /opt/ml-api/repo
 git lfs pull
