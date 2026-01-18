@@ -172,29 +172,53 @@ jobs:
 
       - name: Cleanup existing Azure resources
         run: |
-          # Check if resource group exists
+          # Force delete resource group and wait for complete deletion
+          echo "Checking for existing resource group..."
           if az group exists --name ml-benchmark-rg | grep -q true; then
-            echo "Resource group exists, force deleting..."
-            az group delete --name ml-benchmark-rg --yes --force-deletion-types Microsoft.Compute/virtualMachines --no-wait || true
-            # Wait a bit for deletion to start
-            sleep 30
-            # Try again synchronously if it still exists
-            if az group exists --name ml-benchmark-rg | grep -q true; then
-              echo "Still exists, waiting for complete deletion..."
-              az group wait --name ml-benchmark-rg --deleted --timeout 600 || true
-            fi
-            echo "Resource group deletion complete"
-          else
-            echo "Resource group does not exist, proceeding..."
+            echo "Resource group exists, deleting synchronously..."
+            az group delete --name ml-benchmark-rg --yes --force-deletion-types Microsoft.Compute/virtualMachines || true
+            echo "Waiting 90s for Azure to fully release resources..."
+            sleep 90
           fi
+          
+          # Double-check it's gone
+          if az group exists --name ml-benchmark-rg | grep -q true; then
+            echo "Still exists, forcing deletion again..."
+            az group delete --name ml-benchmark-rg --yes || true
+            sleep 60
+          fi
+          echo "Cleanup complete"
 
       - name: Deploy Azure Infrastructure
         working-directory: terraform/azure
         run: |
-          terraform init
-          terraform apply -auto-approve \
-            -var="ssh_public_key=$SSH_PUBLIC_KEY" \
-            -var="subscription_id=$ARM_SUBSCRIPTION_ID"
+          # Clean terraform state
+          rm -rf .terraform terraform.tfstate* .terraform.lock.hcl 2>/dev/null || true
+          
+          # Retry terraform apply up to 3 times (Azure provider can have transient 404 errors)
+          for attempt in 1 2 3; do
+            echo "=== Terraform apply attempt $attempt ==="
+            terraform init
+            if terraform apply -auto-approve \
+              -var="ssh_public_key=$SSH_PUBLIC_KEY" \
+              -var="subscription_id=$ARM_SUBSCRIPTION_ID"; then
+              echo "Terraform apply succeeded!"
+              break
+            else
+              echo "Terraform apply failed on attempt $attempt"
+              if [ $attempt -lt 3 ]; then
+                echo "Cleaning up and retrying in 60s..."
+                terraform destroy -auto-approve \
+                  -var="ssh_public_key=$SSH_PUBLIC_KEY" \
+                  -var="subscription_id=$ARM_SUBSCRIPTION_ID" || true
+                rm -rf .terraform terraform.tfstate* .terraform.lock.hcl 2>/dev/null || true
+                sleep 60
+              else
+                echo "All attempts failed"
+                exit 1
+              fi
+            fi
+          done
 
       - name: Setup SSH known hosts
         run: |
