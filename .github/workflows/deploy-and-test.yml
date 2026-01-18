@@ -172,34 +172,25 @@ jobs:
 
       - name: Cleanup existing Azure resources
         run: |
-          # Force delete resource group and wait for complete deletion
-          echo "Checking for existing resource group..."
-          for attempt in 1 2 3; do
-            if az group exists --name ml-benchmark-rg | grep -q true; then
-              echo "Attempt $attempt: Resource group exists, deleting..."
-              az group delete --name ml-benchmark-rg --yes --force-deletion-types Microsoft.Compute/virtualMachines 2>/dev/null || true
-              echo "Waiting 60s for deletion to complete..."
-              sleep 60
-            else
-              echo "Resource group does not exist"
-              break
-            fi
-          done
-          
-          # Final verification - ensure it's really gone
+          # Check if resource group exists
           if az group exists --name ml-benchmark-rg | grep -q true; then
-            echo "ERROR: Resource group still exists after 3 attempts!"
-            echo "Waiting additional 120s..."
-            sleep 120
+            echo "Resource group exists, force deleting..."
+            az group delete --name ml-benchmark-rg --yes --force-deletion-types Microsoft.Compute/virtualMachines --no-wait || true
+            # Wait a bit for deletion to start
+            sleep 30
+            # Try again synchronously if it still exists
+            if az group exists --name ml-benchmark-rg | grep -q true; then
+              echo "Still exists, waiting for complete deletion..."
+              az group wait --name ml-benchmark-rg --deleted --timeout 600 || true
+            fi
+            echo "Resource group deletion complete"
+          else
+            echo "Resource group does not exist, proceeding..."
           fi
-          echo "Cleanup complete, proceeding with deployment..."
 
       - name: Deploy Azure Infrastructure
         working-directory: terraform/azure
         run: |
-          # Remove any stale terraform state
-          rm -rf .terraform terraform.tfstate* .terraform.lock.hcl || true
-          
           terraform init
           terraform apply -auto-approve \
             -var="ssh_public_key=$SSH_PUBLIC_KEY" \
