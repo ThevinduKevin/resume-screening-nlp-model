@@ -195,30 +195,24 @@ jobs:
           # Clean terraform state
           rm -rf .terraform terraform.tfstate* .terraform.lock.hcl 2>/dev/null || true
           
-          # Retry terraform apply up to 3 times (Azure provider can have transient 404 errors)
-          for attempt in 1 2 3; do
-            echo "=== Terraform apply attempt $attempt ==="
+          # Single attempt with Azure CLI cleanup on failure
+          terraform init
+          if ! terraform apply -auto-approve \
+            -var="ssh_public_key=$SSH_PUBLIC_KEY" \
+            -var="subscription_id=$ARM_SUBSCRIPTION_ID"; then
+            echo "Terraform apply failed, cleaning up with Azure CLI..."
+            az group delete --name ml-benchmark-rg --yes --no-wait || true
+            echo "Waiting 120s for Azure to clean up resources..."
+            sleep 120
+            
+            # Retry once more after cleanup
+            rm -rf .terraform terraform.tfstate* .terraform.lock.hcl 2>/dev/null || true
             terraform init
-            if terraform apply -auto-approve \
+            terraform apply -auto-approve \
               -var="ssh_public_key=$SSH_PUBLIC_KEY" \
-              -var="subscription_id=$ARM_SUBSCRIPTION_ID"; then
-              echo "Terraform apply succeeded!"
-              break
-            else
-              echo "Terraform apply failed on attempt $attempt"
-              if [ $attempt -lt 3 ]; then
-                echo "Cleaning up and retrying in 60s..."
-                terraform destroy -auto-approve \
-                  -var="ssh_public_key=$SSH_PUBLIC_KEY" \
-                  -var="subscription_id=$ARM_SUBSCRIPTION_ID" || true
-                rm -rf .terraform terraform.tfstate* .terraform.lock.hcl 2>/dev/null || true
-                sleep 60
-              else
-                echo "All attempts failed"
-                exit 1
-              fi
-            fi
-          done
+              -var="subscription_id=$ARM_SUBSCRIPTION_ID"
+          fi
+          echo "Terraform apply succeeded!"
 
       - name: Setup SSH known hosts
         run: |

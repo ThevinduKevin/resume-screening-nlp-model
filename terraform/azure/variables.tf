@@ -3,15 +3,15 @@ variable "subscription_id" {
   type        = string
 }
 
-# Azure region - UK South typically has excellent VM availability
+# Azure region - Germany West Central typically has good availability
 variable "location" {
-  default = "UK South"
+  default = "Germany West Central"
 }
 
-# VM size - Standard_D2s_v3 (2 vCPU, 8GB) is widely available
-# D-series v3 has better availability than B-series and older D-series
+# VM size - Standard_A2_v2 (2 vCPU, 4GB) is the most widely available
+# A-series v2 has best availability across all Azure regions
 variable "vm_size" {
-  default = "Standard_D2s_v3"
+  default = "Standard_A2_v2"
 }
 
 variable "ssh_public_key" {
