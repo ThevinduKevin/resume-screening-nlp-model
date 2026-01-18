@@ -3,15 +3,15 @@ variable "subscription_id" {
   type        = string
 }
 
-# Azure region - Germany West Central typically has good availability
+# Azure region - Sweden Central is a newer region with good capacity
 variable "location" {
-  default = "Germany West Central"
+  default = "Sweden Central"
 }
 
-# VM size - Standard_A2_v2 (2 vCPU, 4GB) is the most widely available
-# A-series v2 has best availability across all Azure regions
+# VM size - Standard_B2s (2 vCPU, 4GB) - trying B-series in a different region
+# If this fails, may need to check Azure subscription quotas
 variable "vm_size" {
-  default = "Standard_A2_v2"
+  default = "Standard_B2s"
 }
 
 variable "ssh_public_key" {
