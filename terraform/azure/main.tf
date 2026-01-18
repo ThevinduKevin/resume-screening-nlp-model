@@ -1,10 +1,21 @@
 provider "azurerm" {
-  features {}
+  features {
+    resource_group {
+      prevent_deletion_if_contains_resources = false
+    }
+  }
+  subscription_id = var.subscription_id
 }
 
 resource "azurerm_resource_group" "rg" {
   name     = "ml-benchmark-rg"
   location = var.location
+
+  # Add timeouts for slow operations
+  timeouts {
+    create = "10m"
+    delete = "30m"
+  }
 }
 
 resource "azurerm_virtual_network" "vnet" {
@@ -12,6 +23,8 @@ resource "azurerm_virtual_network" "vnet" {
   address_space       = ["10.0.0.0/16"]
   location            = var.location
   resource_group_name = azurerm_resource_group.rg.name
+
+  depends_on = [azurerm_resource_group.rg]
 }
 
 resource "azurerm_subnet" "subnet" {
@@ -19,6 +32,48 @@ resource "azurerm_subnet" "subnet" {
   resource_group_name  = azurerm_resource_group.rg.name
   virtual_network_name = azurerm_virtual_network.vnet.name
   address_prefixes     = ["10.0.1.0/24"]
+}
+
+resource "azurerm_public_ip" "ip" {
+  name                = "ml-ip"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.rg.name
+  allocation_method   = "Static"
+  sku                 = "Standard"
+
+  depends_on = [azurerm_resource_group.rg]
+}
+
+resource "azurerm_network_security_group" "nsg" {
+  name                = "ml-nsg"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.rg.name
+
+  security_rule {
+    name                       = "SSH"
+    priority                   = 1001
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "22"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+
+  security_rule {
+    name                       = "ML-API"
+    priority                   = 1002
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "8000"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+
+  depends_on = [azurerm_resource_group.rg]
 }
 
 resource "azurerm_network_interface" "nic" {
@@ -34,11 +89,9 @@ resource "azurerm_network_interface" "nic" {
   }
 }
 
-resource "azurerm_public_ip" "ip" {
-  name                = "ml-ip"
-  location            = var.location
-  resource_group_name = azurerm_resource_group.rg.name
-  allocation_method   = "Static"
+resource "azurerm_network_interface_security_group_association" "nsg_assoc" {
+  network_interface_id      = azurerm_network_interface.nic.id
+  network_security_group_id = azurerm_network_security_group.nsg.id
 }
 
 resource "azurerm_linux_virtual_machine" "vm" {
@@ -65,4 +118,6 @@ resource "azurerm_linux_virtual_machine" "vm" {
     sku       = "22_04-lts"
     version   = "latest"
   }
+
+  custom_data = base64encode(file("${path.module}/startup.sh"))
 }
