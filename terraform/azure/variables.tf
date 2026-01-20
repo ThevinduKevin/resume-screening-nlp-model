@@ -3,14 +3,14 @@ variable "subscription_id" {
   type        = string
 }
 
-# Azure region - Southeast Asia where user has quota
+# Azure region - Central US typically has better capacity
 variable "location" {
-  default = "Southeast Asia"
+  default = "Central US"
 }
 
-# VM size - Standard_DS1_v2 (1 vCPU, 3.5GB RAM) - D-series is more available
+# VM size - Standard_A1_v2 (1 vCPU, 2GB RAM) - A-series is older and more available
 variable "vm_size" {
-  default = "Standard_DS1_v2"
+  default = "Standard_A1_v2"
 }
 
 variable "ssh_public_key" {
