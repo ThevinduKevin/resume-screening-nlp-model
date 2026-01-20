@@ -151,6 +151,8 @@ jobs:
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
 
       - name: Azure Login
         uses: azure/login@v2
@@ -172,19 +174,11 @@ jobs:
 
       - name: Cleanup existing Azure resources
         run: |
-          # Force delete resource group and wait for complete deletion
           echo "Checking for existing resource group..."
           if az group exists --name ml-benchmark-rg | grep -q true; then
-            echo "Resource group exists, deleting synchronously..."
-            az group delete --name ml-benchmark-rg --yes --force-deletion-types Microsoft.Compute/virtualMachines || true
-            echo "Waiting 90s for Azure to fully release resources..."
-            sleep 90
-          fi
-          
-          # Double-check it's gone
-          if az group exists --name ml-benchmark-rg | grep -q true; then
-            echo "Still exists, forcing deletion again..."
+            echo "Resource group exists, deleting..."
             az group delete --name ml-benchmark-rg --yes || true
+            echo "Waiting 60s for Azure to release resources..."
             sleep 60
           fi
           echo "Cleanup complete"
@@ -192,20 +186,16 @@ jobs:
       - name: Deploy Azure Infrastructure
         working-directory: terraform/azure
         run: |
-          # Clean terraform state
           rm -rf .terraform terraform.tfstate* .terraform.lock.hcl 2>/dev/null || true
           
-          # Single attempt with Azure CLI cleanup on failure
           terraform init
           if ! terraform apply -auto-approve \
             -var="ssh_public_key=$SSH_PUBLIC_KEY" \
             -var="subscription_id=$ARM_SUBSCRIPTION_ID"; then
-            echo "Terraform apply failed, cleaning up with Azure CLI..."
+            echo "Terraform apply failed, cleaning up..."
             az group delete --name ml-benchmark-rg --yes --no-wait || true
-            echo "Waiting 120s for Azure to clean up resources..."
-            sleep 120
+            sleep 90
             
-            # Retry once more after cleanup
             rm -rf .terraform terraform.tfstate* .terraform.lock.hcl 2>/dev/null || true
             terraform init
             terraform apply -auto-approve \
@@ -214,19 +204,11 @@ jobs:
           fi
           echo "Terraform apply succeeded!"
 
-      - name: Setup SSH known hosts
-        run: |
-          cd terraform/azure
-          TARGET_IP=$(terraform output -raw public_ip)
-          cd ../..
-          ssh-keyscan -H $TARGET_IP >> ~/.ssh/known_hosts || true
-
-      - name: Run Locust tests
+      - name: Run Locust tests on Azure
         env:
           RESULTS_DIR: results/azure
         run: |
           set -e
-
           mkdir -p $RESULTS_DIR
 
           cd terraform/azure
@@ -234,39 +216,20 @@ jobs:
           cd ../..
 
           echo "Target IP: $TARGET_IP"
-          echo "Waiting 60s for VM to be ready for SSH..."
+          ssh-keyscan -H $TARGET_IP >> ~/.ssh/known_hosts || true
+          
+          echo "Waiting 60s for VM to be ready..."
           sleep 60
-
-          echo "=== Testing SSH ==="
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa azureuser@$TARGET_IP "echo SSH_OK"
 
           echo "=== Waiting for startup.sh to complete ==="
           for i in {1..30}; do
-            if ssh -i ~/.ssh/id_rsa azureuser@$TARGET_IP "sudo grep -q 'Setup complete' /var/log/startup.log 2>/dev/null"; then
+            if ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa azureuser@$TARGET_IP "test -f /tmp/setup_complete" 2>/dev/null; then
               echo "startup.sh completed!"
               break
             fi
             echo "Attempt $i/30: startup still running, waiting 10s..."
             sleep 10
           done
-
-          echo "=== Checking ML API service status ==="
-          ssh -i ~/.ssh/id_rsa azureuser@$TARGET_IP << 'EOF'
-            echo "--- startup log (last 30 lines) ---"
-            sudo tail -30 /var/log/startup.log || true
-            
-            echo "--- ml-api service status ---"
-            sudo systemctl status ml-api || true
-            
-            if ! sudo systemctl is-active --quiet ml-api; then
-              echo "Service not running, attempting restart..."
-              sudo systemctl restart ml-api || true
-              sleep 5
-            fi
-            
-            echo "--- Listening on port 8000 ---"
-            ss -tulpn | grep 8000 || echo "Port 8000 not yet listening"
-          EOF
 
           echo "=== Waiting for API to be ready ==="
           for i in {1..12}; do
@@ -300,10 +263,11 @@ jobs:
         if: always()
         working-directory: terraform/azure
         run: |
-          terraform init
+          terraform init || true
           terraform destroy -auto-approve \
-            -var="ssh_public_key=$SSH_PUBLIC_KEY" \
-            -var="subscription_id=$ARM_SUBSCRIPTION_ID"
+            -var="ssh_public_key=${SSH_PUBLIC_KEY:-dummy}" \
+            -var="subscription_id=$ARM_SUBSCRIPTION_ID" || true
+          az group delete --name ml-benchmark-rg --yes --no-wait || true
 
       - name: Upload Azure results
         if: always()

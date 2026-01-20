@@ -3,13 +3,13 @@ variable "subscription_id" {
   type        = string
 }
 
-# Azure region - Sweden Central is a newer region with good capacity
+# Azure region - East US typically has good capacity
 variable "location" {
-  default = "Sweden Central"
+  default = "East US"
 }
 
-# VM size - Standard_B2s (2 vCPU, 4GB) - trying B-series in a different region
-# If this fails, may need to check Azure subscription quotas
+# VM size - Standard_B2s (2 vCPU, 4GB RAM)
+# Comparable to AWS t3.micro and GCP e2-micro
 variable "vm_size" {
   default = "Standard_B2s"
 }
