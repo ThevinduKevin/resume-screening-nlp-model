@@ -2,7 +2,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 3.100.0"
+      version = "~> 3.100.0"  # Use stable 3.x version to avoid 4.x bugs
     }
     time = {
       source  = "hashicorp/time"
@@ -30,7 +30,7 @@ resource "azurerm_resource_group" "rg" {
   }
 }
 
-# Wait for resource group to propagate
+# Wait for resource group to fully propagate in Azure API
 resource "time_sleep" "wait_for_rg" {
   depends_on      = [azurerm_resource_group.rg]
   create_duration = "30s"
@@ -43,6 +43,17 @@ resource "azurerm_virtual_network" "vnet" {
   resource_group_name = azurerm_resource_group.rg.name
 
   depends_on = [time_sleep.wait_for_rg]
+
+  timeouts {
+    create = "10m"
+    delete = "10m"
+  }
+}
+
+# Wait for VNet to fully propagate
+resource "time_sleep" "wait_for_vnet" {
+  depends_on      = [azurerm_virtual_network.vnet]
+  create_duration = "15s"
 }
 
 resource "azurerm_subnet" "subnet" {
@@ -50,6 +61,13 @@ resource "azurerm_subnet" "subnet" {
   resource_group_name  = azurerm_resource_group.rg.name
   virtual_network_name = azurerm_virtual_network.vnet.name
   address_prefixes     = ["10.0.1.0/24"]
+
+  depends_on = [time_sleep.wait_for_vnet]
+
+  timeouts {
+    create = "10m"
+    delete = "10m"
+  }
 }
 
 resource "azurerm_public_ip" "ip" {
@@ -60,6 +78,11 @@ resource "azurerm_public_ip" "ip" {
   sku                 = "Standard"
 
   depends_on = [time_sleep.wait_for_rg]
+
+  timeouts {
+    create = "10m"
+    delete = "10m"
+  }
 }
 
 resource "azurerm_network_security_group" "nsg" {
@@ -92,6 +115,11 @@ resource "azurerm_network_security_group" "nsg" {
   }
 
   depends_on = [time_sleep.wait_for_rg]
+
+  timeouts {
+    create = "10m"
+    delete = "10m"
+  }
 }
 
 resource "azurerm_network_interface" "nic" {
@@ -105,11 +133,21 @@ resource "azurerm_network_interface" "nic" {
     private_ip_address_allocation = "Dynamic"
     public_ip_address_id          = azurerm_public_ip.ip.id
   }
+
+  timeouts {
+    create = "10m"
+    delete = "10m"
+  }
 }
 
 resource "azurerm_network_interface_security_group_association" "nsg_assoc" {
   network_interface_id      = azurerm_network_interface.nic.id
   network_security_group_id = azurerm_network_security_group.nsg.id
+
+  timeouts {
+    create = "10m"
+    delete = "10m"
+  }
 }
 
 resource "azurerm_linux_virtual_machine" "vm" {
@@ -138,9 +176,9 @@ resource "azurerm_linux_virtual_machine" "vm" {
   }
 
   custom_data = base64encode(file("${path.module}/startup.sh"))
-}
 
-output "public_ip" {
-  value = azurerm_public_ip.ip.address
+  timeouts {
+    create = "30m"
+    delete = "30m"
+  }
 }
-
