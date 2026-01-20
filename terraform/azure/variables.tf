@@ -3,14 +3,14 @@ variable "subscription_id" {
   type        = string
 }
 
-# Azure region - East US has good VM capacity for Pay-As-You-Go
+# Azure region - Southeast Asia where user has quota
 variable "location" {
-  default = "East US"
+  default = "Southeast Asia"
 }
 
-# VM size - Standard_B2s (2 vCPU, 4GB RAM)
+# VM size - Standard_DS1_v2 (1 vCPU, 3.5GB RAM) - D-series is more available
 variable "vm_size" {
-  default = "Standard_B2s"
+  default = "Standard_DS1_v2"
 }
 
 variable "ssh_public_key" {
