@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+"""
+Upload benchmark results to Google Sheets for comparison.
+Requires GCP credentials with access to the Google Sheet.
+"""
+
+import os
+import csv
+import sys
+from datetime import datetime
+
+import gspread
+from google.oauth2.service_account import Credentials
+
+# Google Sheet ID from the URL
+SPREADSHEET_ID = "1uX2OFJXOWsPlktGLeZIcvoecs8I5Sg_xT-7GGGRDXk8"
+
+# Scopes required for Google Sheets API
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
+
+
+def get_credentials():
+    """Get credentials from environment or default application credentials."""
+    # Check for GOOGLE_APPLICATION_CREDENTIALS environment variable
+    creds_file = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    if creds_file and os.path.exists(creds_file):
+        return Credentials.from_service_account_file(creds_file, scopes=SCOPES)
+    
+    # Fall back to application default credentials
+    import google.auth
+    credentials, _ = google.auth.default(scopes=SCOPES)
+    return credentials
+
+
+def parse_locust_stats(results_dir, user_count):
+    """Parse Locust stats CSV and extract key metrics."""
+    stats_file = os.path.join(results_dir, f"locust_{user_count}_stats.csv")
+    
+    if not os.path.exists(stats_file):
+        print(f"Warning: {stats_file} not found")
+        return None
+    
+    with open(stats_file, "r") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row["Name"] == "Aggregated":
+                return {
+                    "request_count": int(row["Request Count"]),
+                    "failure_count": int(row["Failure Count"]),
+                    "median_response_time": float(row["Median Response Time"]),
+                    "avg_response_time": float(row["Average Response Time"]),
+                    "min_response_time": float(row["Min Response Time"]),
+                    "max_response_time": float(row["Max Response Time"]),
+                    "requests_per_sec": float(row["Requests/s"]),
+                    "p50": float(row["50%"]),
+                    "p95": float(row["95%"]),
+                    "p99": float(row["99%"]),
+                }
+    return None
+
+
+def upload_results(cloud_provider, results_dir):
+    """Upload benchmark results to Google Sheets."""
+    
+    # Get credentials and connect to Google Sheets
+    credentials = get_credentials()
+    gc = gspread.authorize(credentials)
+    
+    # Open the spreadsheet
+    spreadsheet = gc.open_by_key(SPREADSHEET_ID)
+    
+    # Get or create the worksheet
+    try:
+        worksheet = spreadsheet.worksheet("Benchmark Results")
+    except gspread.WorksheetNotFound:
+        worksheet = spreadsheet.add_worksheet(title="Benchmark Results", rows=100, cols=20)
+        # Add headers
+        headers = [
+            "Timestamp", "Cloud Provider", "User Count",
+            "Request Count", "Failure Count", "Failure Rate (%)",
+            "Median Response (ms)", "Avg Response (ms)", 
+            "Min Response (ms)", "Max Response (ms)",
+            "Requests/sec", "P50 (ms)", "P95 (ms)", "P99 (ms)"
+        ]
+        worksheet.update('A1:N1', [headers])
+        # Format header row
+        worksheet.format('A1:N1', {'textFormat': {'bold': True}})
+    
+    # User counts to process
+    user_counts = [1, 10, 100, 1000, 2000]
+    
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    rows_to_add = []
+    
+    for user_count in user_counts:
+        stats = parse_locust_stats(results_dir, user_count)
+        if stats:
+            failure_rate = (stats["failure_count"] / stats["request_count"] * 100) if stats["request_count"] > 0 else 0
+            row = [
+                timestamp,
+                cloud_provider.upper(),
+                user_count,
+                stats["request_count"],
+                stats["failure_count"],
+                round(failure_rate, 2),
+                round(stats["median_response_time"], 2),
+                round(stats["avg_response_time"], 2),
+                round(stats["min_response_time"], 2),
+                round(stats["max_response_time"], 2),
+                round(stats["requests_per_sec"], 4),
+                round(stats["p50"], 2),
+                round(stats["p95"], 2),
+                round(stats["p99"], 2),
+            ]
+            rows_to_add.append(row)
+            print(f"Parsed results for {cloud_provider.upper()} with {user_count} users")
+    
+    if rows_to_add:
+        # Append rows to the worksheet
+        worksheet.append_rows(rows_to_add, value_input_option='USER_ENTERED')
+        print(f"Successfully uploaded {len(rows_to_add)} rows for {cloud_provider.upper()}")
+    else:
+        print(f"No results found for {cloud_provider.upper()}")
+
+
+def main():
+    if len(sys.argv) != 3:
+        print("Usage: python upload_to_sheets.py <cloud_provider> <results_dir>")
+        print("  cloud_provider: aws, azure, or gcp")
+        print("  results_dir: path to results directory")
+        sys.exit(1)
+    
+    cloud_provider = sys.argv[1]
+    results_dir = sys.argv[2]
+    
+    if cloud_provider not in ["aws", "azure", "gcp"]:
+        print(f"Invalid cloud provider: {cloud_provider}")
+        sys.exit(1)
+    
+    if not os.path.exists(results_dir):
+        print(f"Results directory not found: {results_dir}")
+        sys.exit(1)
+    
+    upload_results(cloud_provider, results_dir)
+
+
+if __name__ == "__main__":
+    main()

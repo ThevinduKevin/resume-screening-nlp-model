@@ -131,6 +131,12 @@ jobs:
           mv results/locust_*.log $RESULTS_DIR/ || true
           mv results/system_metrics.csv $RESULTS_DIR/ || true
 
+      - name: Upload results to Google Sheets
+        if: success()
+        run: |
+          pip install gspread google-auth
+          python scripts/upload_to_sheets.py aws results/aws
+
       - name: Destroy AWS Infrastructure
         if: always()
         working-directory: terraform/aws
@@ -312,6 +318,12 @@ jobs:
           mv results/locust_*.log $RESULTS_DIR/ || true
           mv results/system_metrics.csv $RESULTS_DIR/ || true
 
+      - name: Upload results to Google Sheets
+        if: success()
+        run: |
+          pip install gspread google-auth
+          python scripts/upload_to_sheets.py azure results/azure
+
       - name: Destroy Azure Infrastructure
         if: always()
         working-directory: terraform/azure
@@ -451,6 +463,12 @@ jobs:
           mv results/locust_*.csv $RESULTS_DIR/ || true
           mv results/locust_*.log $RESULTS_DIR/ || true
           mv results/system_metrics.csv $RESULTS_DIR/ || true
+
+      - name: Upload results to Google Sheets
+        if: success()
+        run: |
+          pip install gspread google-auth
+          python scripts/upload_to_sheets.py gcp results/gcp
 
       - name: Destroy GCP Infrastructure
         if: always()
