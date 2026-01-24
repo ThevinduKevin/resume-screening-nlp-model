@@ -316,8 +316,9 @@ jobs:
         if: always()
         working-directory: terraform/azure
         run: |
-          terraform init
-          terraform destroy -auto-approve \
+          # Only target the resource group - Azure will cascade delete all resources inside
+          # This prevents Terraform from trying to update individual resources during deletion
+          terraform destroy -auto-approve -target=azurerm_resource_group.rg \
             -var="ssh_public_key=$SSH_PUBLIC_KEY" \
             -var="subscription_id=$ARM_SUBSCRIPTION_ID"
 

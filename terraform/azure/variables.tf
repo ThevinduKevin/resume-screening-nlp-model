@@ -8,9 +8,9 @@ variable "location" {
   default = "Central US"
 }
 
-# VM size - Standard_A1_v2 (1 vCPU, 2GB RAM) - A-series is older and more available
+# VM size - Standard_D2s_v3 (2 vCPU, 8GB RAM)
 variable "vm_size" {
-  default = "Standard_A1_v2"
+  default = "Standard_D2s_v3"
 }
 
 variable "ssh_public_key" {
