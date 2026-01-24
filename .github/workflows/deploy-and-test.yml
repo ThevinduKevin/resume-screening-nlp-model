@@ -172,29 +172,47 @@ jobs:
 
       - name: Cleanup existing Azure resources
         run: |
-          # Check if resource group exists
+          # Force delete resource group and wait for complete deletion
+          echo "Checking for existing resource group..."
           if az group exists --name ml-benchmark-rg | grep -q true; then
-            echo "Resource group exists, force deleting..."
-            az group delete --name ml-benchmark-rg --yes --force-deletion-types Microsoft.Compute/virtualMachines --no-wait || true
-            # Wait a bit for deletion to start
-            sleep 30
-            # Try again synchronously if it still exists
-            if az group exists --name ml-benchmark-rg | grep -q true; then
-              echo "Still exists, waiting for complete deletion..."
-              az group wait --name ml-benchmark-rg --deleted --timeout 600 || true
-            fi
-            echo "Resource group deletion complete"
-          else
-            echo "Resource group does not exist, proceeding..."
+            echo "Resource group exists, deleting synchronously..."
+            az group delete --name ml-benchmark-rg --yes --force-deletion-types Microsoft.Compute/virtualMachines || true
+            echo "Waiting 90s for Azure to fully release resources..."
+            sleep 90
           fi
+          
+          # Double-check it's gone
+          if az group exists --name ml-benchmark-rg | grep -q true; then
+            echo "Still exists, forcing deletion again..."
+            az group delete --name ml-benchmark-rg --yes || true
+            sleep 60
+          fi
+          echo "Cleanup complete"
 
       - name: Deploy Azure Infrastructure
         working-directory: terraform/azure
         run: |
+          # Clean terraform state
+          rm -rf .terraform terraform.tfstate* .terraform.lock.hcl 2>/dev/null || true
+          
+          # Single attempt with Azure CLI cleanup on failure
           terraform init
-          terraform apply -auto-approve \
+          if ! terraform apply -auto-approve \
             -var="ssh_public_key=$SSH_PUBLIC_KEY" \
-            -var="subscription_id=$ARM_SUBSCRIPTION_ID"
+            -var="subscription_id=$ARM_SUBSCRIPTION_ID"; then
+            echo "Terraform apply failed, cleaning up with Azure CLI..."
+            az group delete --name ml-benchmark-rg --yes --no-wait || true
+            echo "Waiting 120s for Azure to clean up resources..."
+            sleep 120
+            
+            # Retry once more after cleanup
+            rm -rf .terraform terraform.tfstate* .terraform.lock.hcl 2>/dev/null || true
+            terraform init
+            terraform apply -auto-approve \
+              -var="ssh_public_key=$SSH_PUBLIC_KEY" \
+              -var="subscription_id=$ARM_SUBSCRIPTION_ID"
+          fi
+          echo "Terraform apply succeeded!"
 
       - name: Setup SSH known hosts
         run: |
