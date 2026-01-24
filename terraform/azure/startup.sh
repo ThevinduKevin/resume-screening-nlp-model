@@ -20,10 +20,10 @@ git lfs install
 mkdir -p /opt/ml-api
 cd /opt/ml-api
 
-echo "[*] Cloning repository (api-debug branch) with LFS files"
-# Clone the api-debug branch with LFS files - use GIT_LFS_SKIP_SMUDGE to clone first, then pull LFS separately
+echo "[*] Cloning repository (main branch) with LFS files"
+# Clone the main branch with LFS files - use GIT_LFS_SKIP_SMUDGE to clone first, then pull LFS separately
 export GIT_LFS_SKIP_SMUDGE=1
-git clone --branch api-debug --single-branch https://github.com/ThevinduKevin/resume-screening-nlp-model.git repo
+git clone --branch main --single-branch https://github.com/ThevinduKevin/resume-screening-nlp-model.git repo
 unset GIT_LFS_SKIP_SMUDGE
 
 cd /opt/ml-api/repo
