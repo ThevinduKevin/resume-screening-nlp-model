@@ -7,7 +7,7 @@ Requires GCP credentials with access to the Google Sheet.
 import os
 import csv
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -35,6 +35,26 @@ def get_credentials():
     return credentials
 
 
+def safe_float(value, default=0.0):
+    """Safely convert a value to float, handling N/A and empty strings."""
+    if value is None or value == "" or value == "N/A":
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def safe_int(value, default=0):
+    """Safely convert a value to int, handling N/A and empty strings."""
+    if value is None or value == "" or value == "N/A":
+        return default
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
 def parse_locust_stats(results_dir, user_count):
     """Parse Locust stats CSV and extract key metrics."""
     stats_file = os.path.join(results_dir, f"locust_{user_count}_stats.csv")
@@ -48,16 +68,16 @@ def parse_locust_stats(results_dir, user_count):
         for row in reader:
             if row["Name"] == "Aggregated":
                 return {
-                    "request_count": int(row["Request Count"]),
-                    "failure_count": int(row["Failure Count"]),
-                    "median_response_time": float(row["Median Response Time"]),
-                    "avg_response_time": float(row["Average Response Time"]),
-                    "min_response_time": float(row["Min Response Time"]),
-                    "max_response_time": float(row["Max Response Time"]),
-                    "requests_per_sec": float(row["Requests/s"]),
-                    "p50": float(row["50%"]),
-                    "p95": float(row["95%"]),
-                    "p99": float(row["99%"]),
+                    "request_count": safe_int(row["Request Count"]),
+                    "failure_count": safe_int(row["Failure Count"]),
+                    "median_response_time": safe_float(row["Median Response Time"]),
+                    "avg_response_time": safe_float(row["Average Response Time"]),
+                    "min_response_time": safe_float(row["Min Response Time"]),
+                    "max_response_time": safe_float(row["Max Response Time"]),
+                    "requests_per_sec": safe_float(row["Requests/s"]),
+                    "p50": safe_float(row["50%"]),
+                    "p95": safe_float(row["95%"]),
+                    "p99": safe_float(row["99%"]),
                 }
     return None
 
@@ -92,7 +112,7 @@ def upload_results(cloud_provider, results_dir):
     # User counts to process
     user_counts = [1, 10, 100, 1000, 2000]
     
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     rows_to_add = []
     
     for user_count in user_counts:
