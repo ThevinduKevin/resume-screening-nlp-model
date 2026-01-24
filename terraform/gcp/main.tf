@@ -1,3 +1,10 @@
+terraform {
+  backend "gcs" {
+    bucket = "resume-screening-ml-terraform-bucket"
+    prefix = "gcp"
+  }
+}
+
 provider "google" {
   project = var.project_id
   region  = var.region
