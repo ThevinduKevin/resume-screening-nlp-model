@@ -1,3 +1,10 @@
+terraform {
+  backend "gcs" {
+    bucket = "resume-screening-ml-terraform-bucket"
+    prefix = "aws"
+  }
+}
+
 provider "aws" {
   region = var.region
 }

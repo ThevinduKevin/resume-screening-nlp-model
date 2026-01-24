@@ -1,4 +1,9 @@
 terraform {
+  backend "gcs" {
+    bucket = "resume-screening-ml-terraform-bucket"
+    prefix = "azure"
+  }
+
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
