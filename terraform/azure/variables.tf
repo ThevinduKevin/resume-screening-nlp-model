@@ -10,7 +10,7 @@ variable "location" {
 
 # VM size - Standard_B2s (2 vCPU burstable, 4GB RAM) - comparable to AWS t3.micro / GCP e2-small
 variable "vm_size" {
-  default = "Standard_B2s"
+  default = "Standard_D2s_v3"
 }
 
 variable "ssh_public_key" {

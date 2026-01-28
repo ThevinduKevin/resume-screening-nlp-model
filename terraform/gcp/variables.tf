@@ -8,9 +8,9 @@ variable "region" {
   default = "asia-south1"
 }
 
-# Machine type - e2-medium (2 vCPU shared, 4GB RAM) - comparable to AWS t3.small / Azure B2s
+# Machine type - e2-standard-2 has 2 vCPU, 8GB RAM (matches Azure Standard_D2s_v3)
 variable "machine_type" {
-  default = "e2-medium"
+  default = "e2-standard-2"
 }
 
 variable "ssh_public_key" {
