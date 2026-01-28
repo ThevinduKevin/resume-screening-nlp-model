@@ -8,10 +8,9 @@ variable "region" {
   default = "asia-south1"
 }
 
-# Machine type - e2-small has 2 vCPU (shared), 2GB RAM (comparable to t3.micro)
-# e2-micro is too small (0.25 vCPU), e2-small is closer match
+# Machine type - e2-medium (2 vCPU shared, 4GB RAM) - comparable to AWS t3.small / Azure B2s
 variable "machine_type" {
-  default = "e2-small"
+  default = "e2-medium"
 }
 
 variable "ssh_public_key" {

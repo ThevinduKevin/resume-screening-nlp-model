@@ -2,8 +2,9 @@ variable "region" {
   default = "ap-south-1"
 }
 
+# Instance type - t3.small (2 vCPU burstable, 2GB RAM)
 variable "instance_type" {
-  default = "t3.micro"
+  default = "t3.small"
 }
 
 variable "ami_id" {
