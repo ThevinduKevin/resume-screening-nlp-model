@@ -82,6 +82,38 @@ def parse_locust_stats(results_dir, user_count):
     return None
 
 
+def parse_instance_metrics(results_dir):
+    """Parse instance metrics CSV and compute averages."""
+    metrics_file = os.path.join(results_dir, "instance_metrics.csv")
+    
+    if not os.path.exists(metrics_file):
+        print(f"Warning: {metrics_file} not found")
+        return None
+    
+    cpu_values = []
+    mem_values = []
+    load_1_values = []
+    
+    with open(metrics_file, "r") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            cpu_values.append(safe_float(row.get("cpu_percent", 0)))
+            mem_values.append(safe_float(row.get("memory_percent", 0)))
+            load_1_values.append(safe_float(row.get("load_avg_1m", 0)))
+    
+    if not cpu_values:
+        return None
+    
+    return {
+        "avg_cpu": sum(cpu_values) / len(cpu_values),
+        "max_cpu": max(cpu_values),
+        "avg_memory": sum(mem_values) / len(mem_values),
+        "max_memory": max(mem_values),
+        "avg_load": sum(load_1_values) / len(load_1_values),
+        "max_load": max(load_1_values),
+    }
+
+
 def upload_results(cloud_provider, results_dir):
     """Upload benchmark results to Google Sheets."""
     
@@ -96,21 +128,26 @@ def upload_results(cloud_provider, results_dir):
     try:
         worksheet = spreadsheet.worksheet("Benchmark Results")
     except gspread.WorksheetNotFound:
-        worksheet = spreadsheet.add_worksheet(title="Benchmark Results", rows=100, cols=20)
+        worksheet = spreadsheet.add_worksheet(title="Benchmark Results", rows=100, cols=26)
         # Add headers
         headers = [
             "Timestamp", "Cloud Provider", "User Count",
             "Request Count", "Failure Count", "Failure Rate (%)",
             "Median Response (ms)", "Avg Response (ms)", 
             "Min Response (ms)", "Max Response (ms)",
-            "Requests/sec", "P50 (ms)", "P95 (ms)", "P99 (ms)"
+            "Requests/sec", "P50 (ms)", "P95 (ms)", "P99 (ms)",
+            "Avg CPU (%)", "Max CPU (%)", "Avg Memory (%)", "Max Memory (%)",
+            "Avg Load", "Max Load"
         ]
-        worksheet.update('A1:N1', [headers])
+        worksheet.update('A1:T1', [headers])
         # Format header row
-        worksheet.format('A1:N1', {'textFormat': {'bold': True}})
+        worksheet.format('A1:T1', {'textFormat': {'bold': True}})
     
     # User counts to process
     user_counts = [1, 10, 100, 1000, 2000]
+    
+    # Parse instance metrics (shared across all user counts)
+    instance_metrics = parse_instance_metrics(results_dir)
     
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     rows_to_add = []
@@ -134,6 +171,12 @@ def upload_results(cloud_provider, results_dir):
                 round(stats["p50"], 2),
                 round(stats["p95"], 2),
                 round(stats["p99"], 2),
+                round(instance_metrics["avg_cpu"], 2) if instance_metrics else "",
+                round(instance_metrics["max_cpu"], 2) if instance_metrics else "",
+                round(instance_metrics["avg_memory"], 2) if instance_metrics else "",
+                round(instance_metrics["max_memory"], 2) if instance_metrics else "",
+                round(instance_metrics["avg_load"], 2) if instance_metrics else "",
+                round(instance_metrics["max_load"], 2) if instance_metrics else "",
             ]
             rows_to_add.append(row)
             print(f"Parsed results for {cloud_provider.upper()} with {user_count} users")
