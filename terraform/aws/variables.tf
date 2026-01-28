@@ -3,7 +3,7 @@ variable "region" {
 }
 
 variable "instance_type" {
-  default = "t3.large"
+  default = "t3.micro"
 }
 
 variable "ami_id" {
