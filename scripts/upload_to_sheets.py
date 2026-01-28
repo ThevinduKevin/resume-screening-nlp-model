@@ -124,23 +124,29 @@ def upload_results(cloud_provider, results_dir):
     # Open the spreadsheet
     spreadsheet = gc.open_by_key(SPREADSHEET_ID)
     
+    # Define headers
+    headers = [
+        "Timestamp", "Cloud Provider", "User Count",
+        "Request Count", "Failure Count", "Failure Rate (%)",
+        "Median Response (ms)", "Avg Response (ms)", 
+        "Min Response (ms)", "Max Response (ms)",
+        "Requests/sec", "P50 (ms)", "P95 (ms)", "P99 (ms)",
+        "Avg CPU (%)", "Max CPU (%)", "Avg Memory (%)", "Max Memory (%)",
+        "Avg Load", "Max Load"
+    ]
+    
     # Get or create the worksheet
     try:
         worksheet = spreadsheet.worksheet("Benchmark Results")
+        # Check if headers need updating (if column O doesn't exist or is empty)
+        current_headers = worksheet.row_values(1)
+        if len(current_headers) < len(headers):
+            print("Updating headers with new columns...")
+            worksheet.update('A1:T1', [headers])
+            worksheet.format('A1:T1', {'textFormat': {'bold': True}})
     except gspread.WorksheetNotFound:
         worksheet = spreadsheet.add_worksheet(title="Benchmark Results", rows=100, cols=26)
-        # Add headers
-        headers = [
-            "Timestamp", "Cloud Provider", "User Count",
-            "Request Count", "Failure Count", "Failure Rate (%)",
-            "Median Response (ms)", "Avg Response (ms)", 
-            "Min Response (ms)", "Max Response (ms)",
-            "Requests/sec", "P50 (ms)", "P95 (ms)", "P99 (ms)",
-            "Avg CPU (%)", "Max CPU (%)", "Avg Memory (%)", "Max Memory (%)",
-            "Avg Load", "Max Load"
-        ]
         worksheet.update('A1:T1', [headers])
-        # Format header row
         worksheet.format('A1:T1', {'textFormat': {'bold': True}})
     
     # User counts to process

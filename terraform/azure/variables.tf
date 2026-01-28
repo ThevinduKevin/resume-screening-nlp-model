@@ -8,9 +8,9 @@ variable "location" {
   default = "Central US"
 }
 
-# VM size - Standard_D2s_v3 (2 vCPU, 8GB RAM)
+# VM size 
 variable "vm_size" {
-  default = "Standard_D2s_v3"
+  default = "B2ats_v2"
 }
 
 variable "ssh_public_key" {
