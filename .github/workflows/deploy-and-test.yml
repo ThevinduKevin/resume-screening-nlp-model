@@ -308,8 +308,8 @@ jobs:
           curl -f http://$TARGET_IP:8000/health
 
           echo "=== Starting remote metrics collection ==="
-          scp -i ~/.ssh/id_rsa scripts/collect_remote_metrics.sh azureuser@$TARGET_IP:/tmp/
-          ssh -i ~/.ssh/id_rsa azureuser@$TARGET_IP "chmod +x /tmp/collect_remote_metrics.sh && nohup /tmp/collect_remote_metrics.sh /tmp/instance_metrics.csv 600 5 > /tmp/metrics.log 2>&1 &"
+          scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no scripts/collect_remote_metrics.sh azureuser@$TARGET_IP:/tmp/
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 azureuser@$TARGET_IP "chmod +x /tmp/collect_remote_metrics.sh && nohup /tmp/collect_remote_metrics.sh /tmp/instance_metrics.csv 600 5 > /tmp/metrics.log 2>&1 < /dev/null & disown"
 
           python3 -m venv locust-env
           source locust-env/bin/activate
@@ -321,7 +321,7 @@ jobs:
           bash scripts/run_locust.sh
 
           echo "=== Downloading instance metrics ==="
-          scp -i ~/.ssh/id_rsa azureuser@$TARGET_IP:/tmp/instance_metrics.csv $RESULTS_DIR/ || true
+          scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no azureuser@$TARGET_IP:/tmp/instance_metrics.csv $RESULTS_DIR/ || true
 
           mv results/locust_*.csv $RESULTS_DIR/ || true
           mv results/locust_*.log $RESULTS_DIR/ || true
@@ -458,8 +458,8 @@ jobs:
           curl -f http://$TARGET_IP:8000/health
 
           echo "=== Starting remote metrics collection ==="
-          scp -i ~/.ssh/id_rsa scripts/collect_remote_metrics.sh ubuntu@$TARGET_IP:/tmp/
-          ssh -i ~/.ssh/id_rsa ubuntu@$TARGET_IP "chmod +x /tmp/collect_remote_metrics.sh && nohup /tmp/collect_remote_metrics.sh /tmp/instance_metrics.csv 600 5 > /tmp/metrics.log 2>&1 &"
+          scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no scripts/collect_remote_metrics.sh ubuntu@$TARGET_IP:/tmp/
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 ubuntu@$TARGET_IP "chmod +x /tmp/collect_remote_metrics.sh && nohup /tmp/collect_remote_metrics.sh /tmp/instance_metrics.csv 600 5 > /tmp/metrics.log 2>&1 < /dev/null & disown"
 
           python3 -m venv locust-env
           source locust-env/bin/activate
@@ -471,7 +471,7 @@ jobs:
           bash scripts/run_locust.sh
 
           echo "=== Downloading instance metrics ==="
-          scp -i ~/.ssh/id_rsa ubuntu@$TARGET_IP:/tmp/instance_metrics.csv $RESULTS_DIR/ || true
+          scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@$TARGET_IP:/tmp/instance_metrics.csv $RESULTS_DIR/ || true
 
           mv results/locust_*.csv $RESULTS_DIR/ || true
           mv results/locust_*.log $RESULTS_DIR/ || true
