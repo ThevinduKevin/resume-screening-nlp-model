@@ -6,60 +6,30 @@ echo "=== Starting ML API setup ===" >> $LOG
 
 exec > >(tee -a $LOG) 2>&1
 
-# Set HOME for git-lfs
-export HOME=/root
-
 apt-get update -y
-apt-get install -y python3-pip python3-venv git unzip wget curl
-
-# Install git-lfs manually
-curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | bash
-apt-get install -y git-lfs
-git lfs install
+apt-get install -y python3-pip python3-venv git unzip wget curl awscli
 
 mkdir -p /opt/ml-api
 cd /opt/ml-api
 
-echo "[*] Cloning repository (main branch) with LFS files"
-# Clone the main branch with LFS files - use GIT_LFS_SKIP_SMUDGE to clone first, then pull LFS separately
-export GIT_LFS_SKIP_SMUDGE=1
-git clone --branch main --single-branch https://github.com/ThevinduKevin/resume-screening-nlp-model.git repo
-unset GIT_LFS_SKIP_SMUDGE
+echo "[*] Downloading app.py and requirements.txt"
+wget -O app.py "https://raw.githubusercontent.com/ThevinduKevin/resume-screening-nlp-model/main/app.py"
+wget -O requirements.txt "https://raw.githubusercontent.com/ThevinduKevin/resume-screening-nlp-model/main/requirements.txt"
 
-cd /opt/ml-api/repo
+echo "[*] Downloading models from S3 (public bucket)"
+aws s3 cp s3://resume-screening-ml-models-thevindu/clf.pkl clf.pkl --no-sign-request --region ap-south-1
+aws s3 cp s3://resume-screening-ml-models-thevindu/tfidf.pkl tfidf.pkl --no-sign-request --region ap-south-1
+aws s3 cp s3://resume-screening-ml-models-thevindu/encoder.pkl encoder.pkl --no-sign-request --region ap-south-1
 
-echo "[*] Current branch:"
-git branch -v
-
-# Force pull LFS files
-echo "[*] Pulling LFS files..."
-git lfs fetch --all
-git lfs checkout
-
-# Verify files exist and are not LFS pointers
 echo "[*] Checking pkl files..."
 ls -la *.pkl || echo "ERROR: pkl files not found!"
-
-# Check if they are actual files or just LFS pointers
-echo "[*] File types:"
-file *.pkl || true
-
-# Verify file sizes (clf.pkl should be ~237MB)
-echo "[*] File sizes:"
-du -h *.pkl || true
 
 echo "[*] Creating Python virtual environment"
 python3 -m venv /opt/ml-api/venv
 
 echo "[*] Installing Python dependencies in venv"
 /opt/ml-api/venv/bin/pip install --upgrade pip
-/opt/ml-api/venv/bin/pip install -r /opt/ml-api/repo/requirements.txt
-
-# Copy necessary files to /opt/ml-api
-cp /opt/ml-api/repo/app.py /opt/ml-api/
-cp /opt/ml-api/repo/clf.pkl /opt/ml-api/
-cp /opt/ml-api/repo/tfidf.pkl /opt/ml-api/
-cp /opt/ml-api/repo/encoder.pkl /opt/ml-api/
+/opt/ml-api/venv/bin/pip install -r requirements.txt
 
 echo "[*] Creating systemd service for ML API"
 cat > /etc/systemd/system/ml-api.service << 'EOF'

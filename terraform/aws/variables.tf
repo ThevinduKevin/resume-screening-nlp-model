@@ -2,8 +2,9 @@ variable "region" {
   default = "ap-south-1"
 }
 
+# Instance type - t3.large (2 vCPU, 8GB RAM) - comparable to Azure Standard_D2s_v3 / GCP e2-standard-2
 variable "instance_type" {
-  default = "t3.micro"
+  default = "t3.large"
 }
 
 variable "ami_id" {
