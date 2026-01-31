@@ -7,7 +7,7 @@ echo "=== Starting ML API setup ===" >> $LOG
 exec > >(tee -a $LOG) 2>&1
 
 apt-get update -y
-apt-get install -y python3-pip python3-venv git unzip wget curl
+apt-get install -y python3-pip python3-venv git unzip wget curl awscli
 
 mkdir -p /opt/ml-api
 cd /opt/ml-api
@@ -17,9 +17,9 @@ wget -O app.py "https://raw.githubusercontent.com/ThevinduKevin/resume-screening
 wget -O requirements.txt "https://raw.githubusercontent.com/ThevinduKevin/resume-screening-nlp-model/main/requirements.txt"
 
 echo "[*] Downloading models from S3 (public bucket)"
-wget -O clf.pkl "https://s3.ap-south-1.amazonaws.com/resume-screening-ml-models-thevindu/clf.pkl"
-wget -O tfidf.pkl "https://s3.ap-south-1.amazonaws.com/resume-screening-ml-models-thevindu/tfidf.pkl"
-wget -O encoder.pkl "https://s3.ap-south-1.amazonaws.com/resume-screening-ml-models-thevindu/encoder.pkl"
+aws s3 cp s3://resume-screening-ml-models-thevindu/clf.pkl clf.pkl --no-sign-request --region ap-south-1
+aws s3 cp s3://resume-screening-ml-models-thevindu/tfidf.pkl tfidf.pkl --no-sign-request --region ap-south-1
+aws s3 cp s3://resume-screening-ml-models-thevindu/encoder.pkl encoder.pkl --no-sign-request --region ap-south-1
 
 echo "[*] Checking pkl files..."
 ls -la *.pkl || echo "ERROR: pkl files not found!"
