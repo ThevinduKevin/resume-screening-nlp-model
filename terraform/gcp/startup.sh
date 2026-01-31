@@ -17,9 +17,9 @@ wget -O app.py "https://raw.githubusercontent.com/ThevinduKevin/resume-screening
 wget -O requirements.txt "https://raw.githubusercontent.com/ThevinduKevin/resume-screening-nlp-model/main/requirements.txt"
 
 echo "[*] Downloading models from S3 (public bucket)"
-wget -O clf.pkl "https://resume-screening-ml-models-thevindu.s3.ap-south-1.amazonaws.com/clf.pkl"
-wget -O tfidf.pkl "https://resume-screening-ml-models-thevindu.s3.ap-south-1.amazonaws.com/tfidf.pkl"
-wget -O encoder.pkl "https://resume-screening-ml-models-thevindu.s3.ap-south-1.amazonaws.com/encoder.pkl"
+wget -O clf.pkl "https://s3.ap-south-1.amazonaws.com/resume-screening-ml-models-thevindu/clf.pkl"
+wget -O tfidf.pkl "https://s3.ap-south-1.amazonaws.com/resume-screening-ml-models-thevindu/tfidf.pkl"
+wget -O encoder.pkl "https://s3.ap-south-1.amazonaws.com/resume-screening-ml-models-thevindu/encoder.pkl"
 
 echo "[*] Checking pkl files..."
 ls -la *.pkl || echo "ERROR: pkl files not found!"
