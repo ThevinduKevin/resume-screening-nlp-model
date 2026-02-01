@@ -1,4 +1,9 @@
 terraform {
+  backend "gcs" {
+    bucket = "resume-screening-ml-terraform-bucket"
+    prefix = "gcp-gke"
+  }
+
   required_providers {
     google = {
       source  = "hashicorp/google"

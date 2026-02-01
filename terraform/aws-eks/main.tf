@@ -1,4 +1,9 @@
 terraform {
+  backend "gcs" {
+    bucket = "resume-screening-ml-terraform-bucket"
+    prefix = "aws-eks"
+  }
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
