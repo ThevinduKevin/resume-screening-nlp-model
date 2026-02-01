@@ -17,23 +17,15 @@ provider "google" {
   region  = var.region
 }
 
-# Enable required APIs
-resource "google_project_service" "container" {
-  service            = "container.googleapis.com"
-  disable_on_destroy = false
-}
-
-resource "google_project_service" "compute" {
-  service            = "compute.googleapis.com"
-  disable_on_destroy = false
-}
+# NOTE: Enable these APIs manually in GCP Console before running:
+# - container.googleapis.com (Kubernetes Engine API)
+# - compute.googleapis.com (Compute Engine API)
+# - cloudresourcemanager.googleapis.com (Cloud Resource Manager API)
 
 # VPC Network
 resource "google_compute_network" "vpc" {
   name                    = "gke-vpc"
   auto_create_subnetworks = false
-
-  depends_on = [google_project_service.compute]
 }
 
 # Subnet
@@ -77,8 +69,6 @@ resource "google_container_cluster" "primary" {
   workload_identity_config {
     workload_pool = "${var.project_id}.svc.id.goog"
   }
-
-  depends_on = [google_project_service.container]
 }
 
 # GKE Node Pool
