@@ -131,7 +131,7 @@ resource "aws_iam_role_policy_attachment" "eks_container_registry" {
 resource "aws_eks_cluster" "main" {
   name     = var.cluster_name
   role_arn = aws_iam_role.eks_cluster.arn
-  version  = "1.28"
+  version  = "1.31"
 
   vpc_config {
     subnet_ids              = aws_subnet.public[*].id
@@ -157,6 +157,8 @@ resource "aws_eks_node_group" "main" {
     max_size     = 3
     min_size     = 1
   }
+
+  version = "1.31"
 
   depends_on = [
     aws_iam_role_policy_attachment.eks_worker_node_policy,
