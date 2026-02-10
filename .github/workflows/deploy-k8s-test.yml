@@ -92,7 +92,7 @@ jobs:
           echo "Waiting for LoadBalancer IP..."
           for i in {1..30}; do
             EXTERNAL_IP=$(kubectl get svc ml-api-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
-            if [ -n "$EXTERNAL_IP" ]; then
+            if [ -n "$EXTERNAL_IP"; then
               echo "LoadBalancer hostname: $EXTERNAL_IP"
               break
             fi
@@ -152,415 +152,425 @@ jobs:
         if: always()
         env:
           RESULTS_DIR: results/aws-eks
+        run: |
+          mkdir -p $RESULTS_DIR
           kubectl top pods > $RESULTS_DIR/k8s_pod_metrics.txt 2>/dev/null || echo "Metrics not available" > $RESULTS_DIR/k8s_pod_metrics.txt
           kubectl get pods -o wide > $RESULTS_DIR/k8s_pods.txt
-          kubectl describe deployment ml-api > $RESULTS_DIR/k8s_deployment.txtcho "Metrics not available" > $RESULTS_DIR/k8s_pod_metrics.txt
-          kubectl get pods -o wide > $RESULTS_DIR/k8s_pods.txt
-      - name: Upload results to Google Sheets> $RESULTS_DIR/k8s_deployment.txt
+          kubectl describe deployment ml-api > $RESULTS_DIR/k8s_deployment.txt
+
+      - name: Upload results to Google Sheets
         if: success()
-        run: |Upload results to Google Sheets
+        run: |
           pip install gspread google-auth
           python scripts/upload_k8s_to_sheets.py aws-eks results/aws-eks
-          pip install gspread google-auth
-      - name: Destroy AWS EKS Infrastructures.py aws-eks results/aws-eks
+
+      - name: Destroy AWS EKS Infrastructure
         if: always()
         working-directory: terraform/aws-eks
-        run: |ways()
+        run: |
           kubectl delete -f ../../k8s/service.yaml --ignore-not-found || true
           kubectl delete -f ../../k8s/deployment.yaml --ignore-not-found || true
           gsutil rm gs://resume-screening-ml-terraform-bucket/aws-eks/default.tflock 2>/dev/null || true
-          terraform destroy -auto-approveloyment.yaml --ignore-not-found || true
-          gsutil rm gs://resume-screening-ml-terraform-bucket/aws-eks/default.tflock 2>/dev/null || true
-      - name: Upload AWS EKS resultsprove
+          terraform destroy -auto-approve
+
+      - name: Upload AWS EKS results
         if: always()
         uses: actions/upload-artifact@v4
-        with:lways()
-          name: aws-eks-resultstifact@v4
-          path: results/aws-eks/
+        with:
           name: aws-eks-results
+          path: results/aws-eks/
+
   # ===========================================
   # GCP GKE JOB
   # ===========================================
-  gcp-gke:E JOB
-    runs-on: ubuntu-latest=====================
+  gcp-gke:
+    runs-on: ubuntu-latest
     permissions:
-      contents: writeatest
-      id-token: write
       contents: write
-    steps:oken: write
+      id-token: write
+
+    steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with: Checkout code
-          ref: ${{ github.ref }}4
-          lfs: true
+        with:
           ref: ${{ github.ref }}
+          lfs: true
+
       - name: Pull LFS files
         run: git lfs pull
-      - name: Pull LFS files
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
-        with: Setup Terraform
-          terraform_wrapper: falseaform@v3
         with:
+          terraform_wrapper: false
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
-        with: Authenticate to Google Cloud
+        with:
           credentials_json: ${{ secrets.GCP_CREDENTIALS }}
-        with:
-      - name: Set up Cloud SDK{ secrets.GCP_CREDENTIALS }}
+
+      - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
-        with: Set up Cloud SDK
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
         with:
-      - name: Install GKE gcloud pluginROJECT_ID }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Install GKE gcloud plugin
         run: |
           gcloud components install gke-gcloud-auth-plugin --quiet
-        run: |
-      - name: Install kubectlnstall gke-gcloud-auth-plugin --quiet
+
+      - name: Install kubectl
         uses: azure/setup-kubectl@v3
-        with: Install kubectl
-          version: 'v1.31.0'bectl@v3
         with:
+          version: 'v1.31.0'
+
       - name: Deploy GKE Infrastructure
         working-directory: terraform/gcp-gke
-        env:: Deploy GKE Infrastructure
+        env:
           TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
         run: |
-          terraform init_id: ${{ secrets.GCP_PROJECT_ID }}
+          terraform init
           gsutil rm gs://resume-screening-ml-terraform-bucket/gcp-gke/default.tflock 2>/dev/null || true
           gsutil rm gs://resume-screening-ml-terraform-bucket/gcp-gke/default.tfstate 2>/dev/null || true
           terraform init -reconfigure
-          gcloud container clusters delete ml-benchmark-gke --region asia-south1 --project ${{ secrets.GCP_PROJECT_ID }} --quiet 2>/dev/null || trueevious failed runs
-          terraform apply -auto-approveraform-bucket/gcp-gke/default.tfstate 2>/dev/null || true
+          gcloud container clusters delete ml-benchmark-gke --region asia-south1 --project ${{ secrets.GCP_PROJECT_ID }} --quiet 2>/dev/null || true
+          terraform apply -auto-approve
 
-      - name: Configure kubectl for GKEit exists
-        working-directory: terraform/gcp-gke          gcloud container clusters delete ml-benchmark-gke --region ${{ vars.GCP_REGION || 'asia-south1' }} --project ${{ secrets.GCP_PROJECT_ID }} --quiet 2>/dev/null || true
+      - name: Configure kubectl for GKE
+        working-directory: terraform/gcp-gke
         run: |
           gcloud container clusters get-credentials $(terraform output -raw cluster_name) --region $(terraform output -raw region) --project ${{ secrets.GCP_PROJECT_ID }}
-Configure kubectl for GKE
+
       - name: Configure Docker for GCR
-        run: |        run: |
-          gcloud auth configure-docker gcr.io --quiett-credentials $(terraform output -raw cluster_name) --region $(terraform output -raw region) --project ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          gcloud auth configure-docker gcr.io --quiet
 
       - name: Build and Push Docker Image to GCR
-        env:        run: |
-          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}quiet
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
           IMAGE_URL="gcr.io/$PROJECT_ID/$DOCKER_IMAGE:$DOCKER_TAG"
           docker build -t $IMAGE_URL .
           docker push $IMAGE_URL
           echo "IMAGE_URL=$IMAGE_URL" >> $GITHUB_ENV
-JECT_ID/$DOCKER_IMAGE:$DOCKER_TAG"
+
       - name: Deploy to Kubernetes
-        run: |          docker push $IMAGE_URL
-          sed -i "s|IMAGE_PLACEHOLDER|$IMAGE_URL|g" k8s/deployment.yamlRL" >> $GITHUB_ENV
+        run: |
+          sed -i "s|IMAGE_PLACEHOLDER|$IMAGE_URL|g" k8s/deployment.yaml
           kubectl apply -f k8s/deployment.yaml
           kubectl apply -f k8s/service.yaml
           
-          echo "Waiting for deployment to be ready..."E_URL|g" k8s/deployment.yaml
-          kubectl rollout status deployment/ml-api --timeout=600skubectl apply -f k8s/deployment.yaml
+          echo "Waiting for deployment to be ready..."
+          kubectl rollout status deployment/ml-api --timeout=600s
           
           echo "Waiting for LoadBalancer IP..."
-          for i in {1..30}; doecho "Waiting for deployment to be ready..."
-            EXTERNAL_IP=$(kubectl get svc ml-api-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")api --timeout=600sn
-            if [ -n "$EXTERNAL_IP" ]; then
+          for i in {1..30}; do
+            EXTERNAL_IP=$(kubectl get svc ml-api-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+            if [ -n "$EXTERNAL_IP"; then
               echo "LoadBalancer IP: $EXTERNAL_IP"
               break
-            fiervice -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-            echo "Attempt $i/30: Waiting for LoadBalancer..." "$EXTERNAL_IP"]; then
-            sleep 10echo "LoadBalancer IP: $EXTERNAL_IP"
+            fi
+            echo "Attempt $i/30: Waiting for LoadBalancer..."
+            sleep 10
           done
           echo "TARGET_HOST=$EXTERNAL_IP" >> $GITHUB_ENV
-ho "Attempt $i/30: Waiting for LoadBalancer..."
+
       - name: Debug pod issues
-        if: failure()          done
-        run: |XTERNAL_IP" >> $GITHUB_ENV
+        if: failure()
+        run: |
           echo "=== Pod Status ==="
-          kubectl get pods -o wideDebug pod issues
+          kubectl get pods -o wide
           echo "=== Pod Events ==="
           kubectl describe pods -l app=ml-api
           echo "=== Pod Logs ==="
           kubectl logs -l app=ml-api --tail=50 || true
-          echo "=== Node Resources ==="="
+          echo "=== Node Resources ==="
           kubectl describe nodes | grep -A 5 "Allocated resources"
 
       - name: Wait for API to be ready
-        run: |          echo "=== Node Resources ==="
-          echo "Waiting for API to be ready at $TARGET_HOST..."p -A 5 "Allocated resources"
+        run: |
+          echo "Waiting for API to be ready at $TARGET_HOST..."
           for i in {1..30}; do
             if curl -sf http://$TARGET_HOST:8000/health > /dev/null 2>&1; then
               echo "API is ready!"
               break
             fi
-            echo "Attempt $i/30: API not ready, waiting 10s..." -sf http://$TARGET_HOST:8000/health > /dev/null 2>&1; then
-            sleep 10echo "API is ready!"
+            echo "Attempt $i/30: API not ready, waiting 10s..."
+            sleep 10
           done
           curl -f http://$TARGET_HOST:8000/health
-ho "Attempt $i/30: API not ready, waiting 10s..."
+
       - name: Run Locust tests
-        env:          done
-          RESULTS_DIR: results/gcp-gkeET_HOST:8000/health
+        env:
+          RESULTS_DIR: results/gcp-gke
         run: |
           set -e
           mkdir -p $RESULTS_DIR
-S_DIR: results/gcp-gke
+
           python3 -m venv locust-env
-          source locust-env/bin/activate          set -e
+          source locust-env/bin/activate
 
           pip install --upgrade pip
-          pip install locust psutil zope-event          python3 -m venv locust-env
-ivate
+          pip install locust psutil zope-event
+
           python scripts/collect_metrics.py &
-          pip install --upgrade pip
-          export TARGET_IP=$TARGET_HOSTt
+
+          export TARGET_IP=$TARGET_HOST
           bash scripts/run_locust.sh
-s.py &
+
           mv results/locust_*.csv $RESULTS_DIR/ || true
-          mv results/locust_*.log $RESULTS_DIR/ || true          export TARGET_IP=$TARGET_HOST
+          mv results/locust_*.log $RESULTS_DIR/ || true
           mv results/system_metrics.csv $RESULTS_DIR/ || true
 
       - name: Collect Kubernetes metrics
-        if: always()          mv results/locust_*.log $RESULTS_DIR/ || true
-        env:$RESULTS_DIR/ || true
+        if: always()
+        env:
           RESULTS_DIR: results/gcp-gke
-        run: |: Collect Kubernetes metrics
+        run: |
           mkdir -p $RESULTS_DIR
           kubectl top pods > $RESULTS_DIR/k8s_pod_metrics.txt 2>/dev/null || echo "Metrics not available" > $RESULTS_DIR/k8s_pod_metrics.txt
-          kubectl get pods -o wide > $RESULTS_DIR/k8s_pods.txtgcp-gke
+          kubectl get pods -o wide > $RESULTS_DIR/k8s_pods.txt
           kubectl describe deployment ml-api > $RESULTS_DIR/k8s_deployment.txt
 
-      - name: Upload results to Google Sheetscho "Metrics not available" > $RESULTS_DIR/k8s_pod_metrics.txt
-        if: success()          kubectl get pods -o wide > $RESULTS_DIR/k8s_pods.txt
-        run: |> $RESULTS_DIR/k8s_deployment.txt
+      - name: Upload results to Google Sheets
+        if: success()
+        run: |
           pip install gspread google-auth
-          python scripts/upload_k8s_to_sheets.py gcp-gke results/gcp-gkeUpload results to Google Sheets
+          python scripts/upload_k8s_to_sheets.py gcp-gke results/gcp-gke
 
       - name: Destroy GCP GKE Infrastructure
-        if: always()          pip install gspread google-auth
-        working-directory: terraform/gcp-gkes.py gcp-gke results/gcp-gke
+        if: always()
+        working-directory: terraform/gcp-gke
         env:
           TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
-        run: |always()
+        run: |
           kubectl delete -f ../../k8s/service.yaml --ignore-not-found || true
           kubectl delete -f ../../k8s/deployment.yaml --ignore-not-found || true
           gsutil rm gs://resume-screening-ml-terraform-bucket/gcp-gke/default.tflock 2>/dev/null || true
           terraform destroy -auto-approve
 
-      - name: Upload GCP GKE resultsloyment.yaml --ignore-not-found || true
-        if: always()          gsutil rm gs://resume-screening-ml-terraform-bucket/gcp-gke/default.tflock 2>/dev/null || true
-        uses: actions/upload-artifact@v4prove
+      - name: Upload GCP GKE results
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: gcp-gke-results
-          path: results/gcp-gke/lways()
-tifact@v4
+          path: results/gcp-gke/
+
   # ===========================================
-  # AZURE AKS JOB          name: gcp-gke-results
+  # AZURE AKS JOB
   # ===========================================
   azure-aks:
     runs-on: ubuntu-latest
-    permissions:S JOB
-      contents: write=====================
+    permissions:
+      contents: write
 
-    steps:atest
-      - name: Checkout code    permissions:
-        uses: actions/checkout@v4ents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.ref }}
-          lfs: true Checkout code
-4
+          lfs: true
+
       - name: Pull LFS files
-        run: git lfs pull          ref: ${{ github.ref }}
+        run: git lfs pull
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3      - name: Pull LFS files
+        uses: hashicorp/setup-terraform@v3
         with:
           terraform_wrapper: false
- Setup Terraform
-      - name: Authenticate to Google Cloudaform@v3
-        uses: google-github-actions/auth@v2        with:
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_CREDENTIALS }}
- Authenticate to Google Cloud
+
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2        with:
-{ secrets.GCP_CREDENTIALS }}
+        uses: google-github-actions/setup-gcloud@v2
+
       - name: Azure Login
-        uses: azure/login@v2      - name: Set up Cloud SDK
-        with:ub-actions/setup-gcloud@v2
+        uses: azure/login@v2
+        with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
- Azure Login
+
       - name: Extract Azure Subscription ID
-        run: |        with:
-          SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r '.subscriptionId')ALS }}
+        run: |
+          SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r '.subscriptionId')
           echo "ARM_SUBSCRIPTION_ID=$SUBSCRIPTION_ID" >> $GITHUB_ENV
 
       - name: Install kubectl
-        uses: azure/setup-kubectl@v3          SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r '.subscriptionId')
-        with:ION_ID=$SUBSCRIPTION_ID" >> $GITHUB_ENV
+        uses: azure/setup-kubectl@v3
+        with:
           version: 'v1.31.0'
- Install kubectl
-      - name: Cleanup existing Azure resourcesbectl@v3
-        run: |        with:
+
+      - name: Cleanup existing Azure resources
+        run: |
           echo "Checking for existing resource group..."
           if az group exists --name ml-benchmark-rg | grep -q true; then
             echo "Resource group exists, deleting..."
             az group delete --name ml-benchmark-rg --yes || true
-            echo "Waiting for resource group to be fully deleted...".."
-            for i in {1..30}; doue; then
+            echo "Waiting for resource group to be fully deleted..."
+            for i in {1..30}; do
               if az group exists --name ml-benchmark-rg | grep -q false; then
-                echo "Resource group deleted!"me ml-benchmark-rg --yes || true
+                echo "Resource group deleted!"
                 break
               fi
-              echo "Attempt $i/30: Still deleting, waiting 30s..."roup exists --name ml-benchmark-rg | grep -q false; then
-              sleep 30echo "Resource group deleted!"
+              echo "Attempt $i/30: Still deleting, waiting 30s..."
+              sleep 30
             done
           fi
-ho "Attempt $i/30: Still deleting, waiting 30s..."
-      - name: Deploy AKS Infrastructure  sleep 30
-        working-directory: terraform/azure-aks            done
+
+      - name: Deploy AKS Infrastructure
+        working-directory: terraform/azure-aks
         run: |
           terraform init
-          gsutil rm gs://resume-screening-ml-terraform-bucket/azure-aks/default.tflock 2>/dev/null || trueDeploy AKS Infrastructure
-          gsutil rm gs://resume-screening-ml-terraform-bucket/azure-aks/default.tfstate 2>/dev/null || truey: terraform/azure-aks
+          gsutil rm gs://resume-screening-ml-terraform-bucket/azure-aks/default.tflock 2>/dev/null || true
+          gsutil rm gs://resume-screening-ml-terraform-bucket/azure-aks/default.tfstate 2>/dev/null || true
           terraform init -reconfigure
           terraform apply -auto-approve
-ning-ml-terraform-bucket/azure-aks/default.tflock 2>/dev/null || true
-      - name: Configure kubectl for AKSng-ml-terraform-bucket/azure-aks/default.tfstate 2>/dev/null || true
-        working-directory: terraform/azure-aks          terraform init -reconfigure
+
+      - name: Configure kubectl for AKS
+        working-directory: terraform/azure-aks
         run: |
           az aks get-credentials --resource-group $(terraform output -raw resource_group_name) --name $(terraform output -raw cluster_name) --overwrite-existing
-Configure kubectl for AKS
+
       - name: Create ACR image pull secret
-        working-directory: terraform/azure-aks        run: |
-        run: |e-group $(terraform output -raw resource_group_name) --name $(terraform output -raw cluster_name) --overwrite-existing
+        working-directory: terraform/azure-aks
+        run: |
           ACR_LOGIN_SERVER=$(terraform output -raw acr_login_server)
-          ACR_USERNAME=$(terraform output -raw acr_admin_username)Create ACR image pull secret
+          ACR_USERNAME=$(terraform output -raw acr_admin_username)
           ACR_PASSWORD=$(terraform output -raw acr_admin_password)
           kubectl create secret docker-registry acr-secret \
-            --docker-server=$ACR_LOGIN_SERVER \r)
-            --docker-username=$ACR_USERNAME \rname)
-            --docker-password=$ACR_PASSWORD \acr_admin_password)
-            --dry-run=client -o yaml | kubectl apply -f -ry acr-secret \
- \
+            --docker-server=$ACR_LOGIN_SERVER \
+            --docker-username=$ACR_USERNAME \
+            --docker-password=$ACR_PASSWORD \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Login to Azure Container Registry
-        working-directory: terraform/azure-aks            --docker-password=$ACR_PASSWORD \
-        run: |apply -f -
+        working-directory: terraform/azure-aks
+        run: |
           ACR_NAME=$(terraform output -raw acr_name)
-          az acr login --name $ACR_NAMELogin to Azure Container Registry
+          az acr login --name $ACR_NAME
           echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
 
-      - name: Build and Push Docker Image to ACRe)
-        working-directory: terraform/azure-aks          az acr login --name $ACR_NAME
-        run: |NV
+      - name: Build and Push Docker Image to ACR
+        working-directory: terraform/azure-aks
+        run: |
           ACR_LOGIN_SERVER=$(terraform output -raw acr_login_server)
-          cd ../..Build and Push Docker Image to ACR
+          cd ../..
           IMAGE_URL="$ACR_LOGIN_SERVER/$DOCKER_IMAGE:$DOCKER_TAG"
           docker build -t $IMAGE_URL .
-          docker push $IMAGE_URLer)
+          docker push $IMAGE_URL
           echo "IMAGE_URL=$IMAGE_URL" >> $GITHUB_ENV
-SERVER/$DOCKER_IMAGE:$DOCKER_TAG"
+
       - name: Deploy to Kubernetes
-        run: |          docker push $IMAGE_URL
-          sed -i "s|IMAGE_PLACEHOLDER|$IMAGE_URL|g" k8s/deployment.yamlRL" >> $GITHUB_ENV
+        run: |
+          sed -i "s|IMAGE_PLACEHOLDER|$IMAGE_URL|g" k8s/deployment.yaml
           kubectl apply -f k8s/deployment.yaml
           kubectl patch deployment ml-api -p '{"spec":{"template":{"spec":{"imagePullSecrets":[{"name":"acr-secret"}]}}}}'
           kubectl apply -f k8s/service.yaml
           
-          echo "Waiting for old pods to terminate..."aml
-          sleep 10kubectl patch deployment ml-api -p '{"spec":{"template":{"spec":{"imagePullSecrets":[{"name":"acr-secret"}]}}}}'
+          echo "Waiting for old pods to terminate..."
+          sleep 10
           
           echo "Waiting for deployment to be ready..."
-          kubectl rollout status deployment/ml-api --timeout=600s || trueecho "Waiting for old pods to terminate..."
+          kubectl rollout status deployment/ml-api --timeout=600s || true
           
           echo "=== DEBUG: Pod Status ==="
-          kubectl get pods -o wideecho "Waiting for deployment to be ready..."
-          echo "=== DEBUG: Pod Events ==="t/ml-api --timeout=600s || true
+          kubectl get pods -o wide
+          echo "=== DEBUG: Pod Events ==="
           kubectl describe pods -l app=ml-api
           echo "=== DEBUG: Pod Logs ==="
           kubectl logs -l app=ml-api --tail=100 || true
-          echo "=== DEBUG: Node Resources ==="="
+          echo "=== DEBUG: Node Resources ==="
           kubectl describe nodes | grep -A 10 "Allocated resources"
           
-          # Fail if pods aren't ready
-          kubectl rollout status deployment/ml-api --timeout=60secho "=== DEBUG: Node Resources ==="
-ep -A 10 "Allocated resources"
+          echo "Waiting for LoadBalancer IP..."
+          for i in {1..30}; do
+            EXTERNAL_IP=$(kubectl get svc ml-api-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+            if [ -n "$EXTERNAL_IP"; then
+              echo "LoadBalancer IP: $EXTERNAL_IP"
+              break
+            fi
+            echo "Attempt $i/30: Waiting for LoadBalancer..."
+            sleep 10
+          done
+          echo "TARGET_HOST=$EXTERNAL_IP" >> $GITHUB_ENV
+
       - name: Debug pod issues
-        if: failure()          # Fail if pods aren't ready
-        run: |us deployment/ml-api --timeout=60s
+        if: failure()
+        run: |
           echo "=== Pod Status ==="
-          kubectl get pods -o wideDebug pod issues
+          kubectl get pods -o wide
           echo "=== Pod Events ==="
           kubectl describe pods -l app=ml-api
           echo "=== Pod Logs ==="
           kubectl logs -l app=ml-api --tail=50 || true
-          echo "=== Node Resources ==="="
+          echo "=== Node Resources ==="
           kubectl describe nodes | grep -A 5 "Allocated resources"
 
       - name: Wait for API to be ready
-        run: |          echo "=== Node Resources ==="
-          echo "Waiting for API to be ready at $TARGET_HOST..."p -A 5 "Allocated resources"
+        run: |
+          echo "Waiting for API to be ready at $TARGET_HOST..."
           for i in {1..30}; do
             if curl -sf http://$TARGET_HOST:8000/health > /dev/null 2>&1; then
               echo "API is ready!"
               break
             fi
-            echo "Attempt $i/30: API not ready, waiting 10s..." -sf http://$TARGET_HOST:8000/health > /dev/null 2>&1; then
-            sleep 10echo "API is ready!"
+            echo "Attempt $i/30: API not ready, waiting 10s..."
+            sleep 10
           done
           curl -f http://$TARGET_HOST:8000/health
-ho "Attempt $i/30: API not ready, waiting 10s..."
+
       - name: Run Locust tests
-        env:          done
-          RESULTS_DIR: results/azure-aksET_HOST:8000/health
+        env:
+          RESULTS_DIR: results/azure-aks
         run: |
           set -e
           mkdir -p $RESULTS_DIR
-S_DIR: results/azure-aks
+
           python3 -m venv locust-env
-          source locust-env/bin/activate          set -e
+          source locust-env/bin/activate
 
           pip install --upgrade pip
-          pip install locust psutil zope-event          python3 -m venv locust-env
-ivate
+          pip install locust psutil zope-event
+
           python scripts/collect_metrics.py &
-          pip install --upgrade pip
-          export TARGET_IP=$TARGET_HOSTt
+
+          export TARGET_IP=$TARGET_HOST
           bash scripts/run_locust.sh
-s.py &
+
           mv results/locust_*.csv $RESULTS_DIR/ || true
-          mv results/locust_*.log $RESULTS_DIR/ || true          export TARGET_IP=$TARGET_HOST
+          mv results/locust_*.log $RESULTS_DIR/ || true
           mv results/system_metrics.csv $RESULTS_DIR/ || true
 
       - name: Collect Kubernetes metrics
-        if: always()          mv results/locust_*.log $RESULTS_DIR/ || true
-        env:$RESULTS_DIR/ || true
+        if: always()
+        env:
           RESULTS_DIR: results/azure-aks
-        run: |: Collect Kubernetes metrics
+        run: |
           mkdir -p $RESULTS_DIR
           kubectl top pods > $RESULTS_DIR/k8s_pod_metrics.txt 2>/dev/null || echo "Metrics not available" > $RESULTS_DIR/k8s_pod_metrics.txt
-          kubectl get pods -o wide > $RESULTS_DIR/k8s_pods.txtazure-aks
+          kubectl get pods -o wide > $RESULTS_DIR/k8s_pods.txt
           kubectl describe deployment ml-api > $RESULTS_DIR/k8s_deployment.txt
 
-      - name: Upload results to Google Sheetscho "Metrics not available" > $RESULTS_DIR/k8s_pod_metrics.txt
-        if: success()          kubectl get pods -o wide > $RESULTS_DIR/k8s_pods.txt
-        run: |> $RESULTS_DIR/k8s_deployment.txt
+      - name: Upload results to Google Sheets
+        if: success()
+        run: |
           pip install gspread google-auth
-          python scripts/upload_k8s_to_sheets.py azure-aks results/azure-aksUpload results to Google Sheets
+          python scripts/upload_k8s_to_sheets.py azure-aks results/azure-aks
 
       - name: Destroy Azure AKS Infrastructure
-        if: always()          pip install gspread google-auth
-        working-directory: terraform/azure-akspy azure-aks results/azure-aks
+        if: always()
+        working-directory: terraform/azure-aks
         run: |
           kubectl delete -f ../../k8s/service.yaml --ignore-not-found || true
-          kubectl delete -f ../../k8s/deployment.yaml --ignore-not-found || trueways()
+          kubectl delete -f ../../k8s/deployment.yaml --ignore-not-found || true
           gsutil rm gs://resume-screening-ml-terraform-bucket/azure-aks/default.tflock 2>/dev/null || true
           terraform destroy -auto-approve || true
           az group delete --name ml-benchmark-rg --yes --no-wait || true
-yaml --ignore-not-found || true
-      - name: Upload Azure AKS resultsdefault.tflock 2>/dev/null || true
-        if: always()          terraform destroy -auto-approve || true
-        uses: actions/upload-artifact@v4nchmark-rg --yes --no-wait || true
+
+      - name: Upload Azure AKS results
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: azure-aks-results
-          path: results/azure-aks/          name: azure-aks-results
           path: results/azure-aks/
