@@ -5,7 +5,7 @@ metadata:
   labels:
     app: ml-api
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: ml-api
@@ -21,24 +21,24 @@ spec:
         - containerPort: 8000
         resources:
           requests:
-            memory: "512Mi"
-            cpu: "250m"
-          limits:
-            memory: "1Gi"
+            memory: "2Gi"
             cpu: "500m"
+          limits:
+            memory: "7Gi"
+            cpu: "1500m"
         readinessProbe:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 30
+          initialDelaySeconds: 120
           periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
+          timeoutSeconds: 10
+          failureThreshold: 6
         livenessProbe:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 60
+          initialDelaySeconds: 180
           periodSeconds: 15
-          timeoutSeconds: 5
-          failureThreshold: 3
+          timeoutSeconds: 10
+          failureThreshold: 6
