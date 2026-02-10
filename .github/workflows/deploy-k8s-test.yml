@@ -459,23 +459,19 @@ jobs:
           sleep 10
           
           echo "Waiting for deployment to be ready..."
-          kubectl rollout status deployment/ml-api --timeout=600s
+          kubectl rollout status deployment/ml-api --timeout=600s || true
           
-          echo "Checking pod status..."
+          echo "=== DEBUG: Pod Status ==="
           kubectl get pods -o wide
-          kubectl describe pods -l app=ml-api | tail -30
+          echo "=== DEBUG: Pod Events ==="
+          kubectl describe pods -l app=ml-api
+          echo "=== DEBUG: Pod Logs ==="
+          kubectl logs -l app=ml-api --tail=100 || true
+          echo "=== DEBUG: Node Resources ==="
+          kubectl describe nodes | grep -A 10 "Allocated resources"
           
-          echo "Waiting for LoadBalancer IP..."
-          for i in {1..30}; do
-            EXTERNAL_IP=$(kubectl get svc ml-api-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-            if [ -n "$EXTERNAL_IP" ]; then
-              echo "LoadBalancer IP: $EXTERNAL_IP"
-              break
-            fi
-            echo "Attempt $i/30: Waiting for LoadBalancer..."
-            sleep 10
-          done
-          echo "TARGET_HOST=$EXTERNAL_IP" >> $GITHUB_ENV
+          # Fail if pods aren't ready
+          kubectl rollout status deployment/ml-api --timeout=60s
 
       - name: Debug pod issues
         if: failure()
