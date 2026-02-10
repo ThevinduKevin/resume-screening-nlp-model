@@ -399,6 +399,18 @@ jobs:
         run: |
           az aks get-credentials --resource-group $(terraform output -raw resource_group_name) --name $(terraform output -raw cluster_name) --overwrite-existing
 
+      - name: Create ACR image pull secret
+        working-directory: terraform/azure-aks
+        run: |
+          ACR_LOGIN_SERVER=$(terraform output -raw acr_login_server)
+          ACR_USERNAME=$(terraform output -raw acr_admin_username)
+          ACR_PASSWORD=$(terraform output -raw acr_admin_password)
+          kubectl create secret docker-registry acr-secret \
+            --docker-server=$ACR_LOGIN_SERVER \
+            --docker-username=$ACR_USERNAME \
+            --docker-password=$ACR_PASSWORD \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Login to Azure Container Registry
         working-directory: terraform/azure-aks
         run: |
@@ -420,6 +432,7 @@ jobs:
         run: |
           sed -i "s|IMAGE_PLACEHOLDER|$IMAGE_URL|g" k8s/deployment.yaml
           kubectl apply -f k8s/deployment.yaml
+          kubectl patch deployment ml-api -p '{"spec":{"template":{"spec":{"imagePullSecrets":[{"name":"acr-secret"}]}}}}'
           kubectl apply -f k8s/service.yaml
           
           echo "Waiting for deployment to be ready..."
