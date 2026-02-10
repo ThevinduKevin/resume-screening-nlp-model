@@ -9,6 +9,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.9"
+    }
   }
 }
 
@@ -123,54 +127,62 @@ resource "aws_iam_role_policy_attachment" "eks_cni_policy" {
 }
 
 resource "aws_iam_role_policy_attachment" "eks_container_registry" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-  role       = aws_iam_role.eks_nodes.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"M role propagation
+  role       = aws_iam_role.eks_nodes.name" {
 }
-
-# EKS Cluster
-resource "aws_eks_cluster" "main" {
+rker_node_policy,
+# EKS Clusterlicy_attachment.eks_cni_policy,
+resource "aws_eks_cluster" "main" {    aws_iam_role_policy_attachment.eks_container_registry
   name     = var.cluster_name
   role_arn = aws_iam_role.eks_cluster.arn
   version  = "1.31"
 
-  vpc_config {
-    subnet_ids              = aws_subnet.public[*].id
-    endpoint_public_access  = true
+  vpc_config {KS Cluster
+    subnet_ids              = aws_subnet.public[*].idresource "aws_eks_cluster" "main" {
+    endpoint_public_access  = true.cluster_name
     endpoint_private_access = false
-  }
+  }ersion  = "1.31"
 
-  depends_on = [
-    aws_iam_role_policy_attachment.eks_cluster_policy
+  depends_on = [  vpc_config {
+    aws_iam_role_policy_attachment.eks_cluster_policy            = aws_subnet.public[*].id
   ]
 }
 
 # EKS Node Group
 resource "aws_eks_node_group" "main" {
-  cluster_name    = aws_eks_cluster.main.name
-  node_group_name = "ml-node-group"
+  cluster_name    = aws_eks_cluster.main.nameer_policy
+  node_group_name = "ml-node-group"  ]
   node_role_arn   = aws_iam_role.eks_nodes.arn
   subnet_ids      = aws_subnet.public[*].id
   instance_types  = [var.node_instance_type]
-
-  scaling_config {
-    desired_size = 2
-    max_size     = 3
-    min_size     = 1
-  }
+de_group" "main" {
+  scaling_config {luster_name    = aws_eks_cluster.main.name
+    desired_size = 2  node_group_name = "ml-node-group"
+    max_size     = 3= aws_iam_role.eks_nodes.arn
+    min_size     = 1  subnet_ids      = aws_subnet.public[*].id
+  }  = [var.node_instance_type]
 
   version = "1.31"
 
-  depends_on = [
-    aws_iam_role_policy_attachment.eks_worker_node_policy,
-    aws_iam_role_policy_attachment.eks_cni_policy,
+  depends_on = [ max_size     = 3
+    aws_iam_role_policy_attachment.eks_worker_node_policy,   min_size     = 1
+    aws_iam_role_policy_attachment.eks_cni_policy,  }
     aws_iam_role_policy_attachment.eks_container_registry
   ]
 }
 
 # ECR Repository
-resource "aws_ecr_repository" "ml_api" {
+resource "aws_ecr_repository" "ml_api" {  ]
   name                 = "ml-resume-api"
   image_tag_mutability = "MUTABLE"
+  force_delete         = trueCR Repository
+esource "aws_ecr_repository" "ml_api" {
+  image_scanning_configuration {  name                 = "ml-resume-api"
+
+
+
+
+}  }    scan_on_push = false  image_tag_mutability = "MUTABLE"
   force_delete         = true
 
   image_scanning_configuration {

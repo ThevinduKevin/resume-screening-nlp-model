@@ -228,6 +228,11 @@ jobs:
         run: |
           terraform init
           gsutil rm gs://resume-screening-ml-terraform-bucket/gcp-gke/default.tflock 2>/dev/null || true
+          # Clear stale state from previous failed runs
+          gsutil rm gs://resume-screening-ml-terraform-bucket/gcp-gke/default.tfstate 2>/dev/null || true
+          terraform init -reconfigure
+          # Delete leftover cluster if it exists
+          gcloud container clusters delete ml-benchmark-gke --region ${{ vars.GCP_REGION || 'asia-south1' }} --project ${{ secrets.GCP_PROJECT_ID }} --quiet 2>/dev/null || true
           terraform apply -auto-approve
 
       - name: Configure kubectl for GKE
@@ -255,12 +260,12 @@ jobs:
           kubectl apply -f k8s/service.yaml
           
           echo "Waiting for deployment to be ready..."
-          kubectl rollout status deployment/ml-api --timeout=600s
+          kubectl rollout status deployment/ml-api --timeout=600sn
           
           echo "Waiting for LoadBalancer IP..."
           for i in {1..30}; do
             EXTERNAL_IP=$(kubectl get svc ml-api-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-            if [ -n "$EXTERNAL_IP" ]; then
+            if [ -n "$EXTERNAL_IP"]; then
               echo "LoadBalancer IP: $EXTERNAL_IP"
               break
             fi
@@ -402,7 +407,15 @@ jobs:
           if az group exists --name ml-benchmark-rg | grep -q true; then
             echo "Resource group exists, deleting..."
             az group delete --name ml-benchmark-rg --yes || true
-            sleep 60
+            echo "Waiting for resource group to be fully deleted..."
+            for i in {1..30}; do
+              if az group exists --name ml-benchmark-rg | grep -q false; then
+                echo "Resource group deleted!"
+                break
+              fi
+              echo "Attempt $i/30: Still deleting, waiting 30s..."
+              sleep 30
+            done
           fi
 
       - name: Deploy AKS Infrastructure
