@@ -75,7 +75,7 @@ jobs:
         run: |
           ECR_REPO=$(terraform output -raw ecr_repository_url)
           cd ../..
-          docker build -t $ECR_REPO:$DOCKER_TAG .
+          docker build -t $ECR_REPO:$DOCKER_TAG . 
           docker push $ECR_REPO:$DOCKER_TAG
           echo "IMAGE_URL=$ECR_REPO:$DOCKER_TAG" >> $GITHUB_ENV
 
@@ -392,6 +392,9 @@ jobs:
           terraform init
           # Remove any stale lock files from previous failed runs
           gsutil rm gs://resume-screening-ml-terraform-bucket/azure-aks/default.tflock 2>/dev/null || true
+          # Clear old state that references removed resources (role_assignment)
+          gsutil rm gs://resume-screening-ml-terraform-bucket/azure-aks/default.tfstate 2>/dev/null || true
+          terraform init -reconfigure
           terraform apply -auto-approve
 
       - name: Configure kubectl for AKS
