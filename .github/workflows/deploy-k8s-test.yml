@@ -98,12 +98,13 @@ jobs:
           for i in {1..30}; do
             if curl -sf http://$TARGET_HOST:8000/health > /dev/null 2>&1; then
               echo "API is ready!"
+              sleep 10
               break
             fi
             echo "Attempt $i/30: API not ready, waiting 10s..."
             sleep 10
           done
-          curl -f http://$TARGET_HOST:8000/health
+          curl -sf --retry 3 --retry-delay 5 http://$TARGET_HOST:8000/health
       - name: Run Locust tests
         env:
           RESULTS_DIR: results/aws-eks
@@ -220,7 +221,7 @@ jobs:
           echo "Waiting for LoadBalancer IP..."
           for i in {1..30}; do
             EXTERNAL_IP=$(kubectl get svc ml-api-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-            if [ -n "$EXTERNAL_IP" ]; then
+            if [ -n "$EXTERNAL_IP"; then
               echo "LoadBalancer IP: $EXTERNAL_IP"
               break
             fi
@@ -407,7 +408,7 @@ jobs:
           echo "Waiting for LoadBalancer IP..."
           for i in {1..30}; do
             EXTERNAL_IP=$(kubectl get svc ml-api-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-            if [ -n "$EXTERNAL_IP" ]; then
+            if [ -n "$EXTERNAL_IP"; then
               echo "LoadBalancer IP: $EXTERNAL_IP"
               break
             fi
