@@ -30,13 +30,13 @@ variable "app_name" {
 variable "cpu_cores" {
   description = "CPU cores for the container"
   type        = number
-  default     = 2.0
+  default     = 2.0  # 2 vCPU to match VM/K8s
 }
 
 variable "memory_size" {
-  description = "Memory size for the container (e.g., 4Gi)"
+  description = "Memory size for the container"
   type        = string
-  default     = "4Gi"
+  default     = "8Gi"  # 8GB to match VM/K8s deployments
 }
 
 variable "min_replicas" {
