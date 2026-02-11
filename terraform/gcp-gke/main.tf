@@ -59,6 +59,12 @@ resource "google_container_cluster" "primary" {
   remove_default_node_pool = true
   initial_node_count       = 1
 
+  # Force default node pool to use pd-standard to avoid SSD quota
+  node_config {
+    disk_type    = "pd-standard"
+    disk_size_gb = 30
+  }
+
   network    = google_compute_network.vpc.name
   subnetwork = google_compute_subnetwork.subnet.name
 
