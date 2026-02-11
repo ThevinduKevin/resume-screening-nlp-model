@@ -1,4 +1,9 @@
 terraform {
+  backend "gcs" {
+    bucket = "resume-screening-ml-terraform-bucket"
+    prefix = "azure-aks"
+  }
+
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
@@ -72,10 +77,10 @@ resource "azurerm_kubernetes_cluster" "main" {
   }
 }
 
-# Role assignment for AKS to pull from ACR
-resource "azurerm_role_assignment" "aks_acr" {
-  principal_id                     = azurerm_kubernetes_cluster.main.kubelet_identity[0].object_id
-  role_definition_name             = "AcrPull"
-  scope                            = azurerm_container_registry.acr.id
-  skip_service_principal_aad_check = true
-}
+# REMOVED: No longer needed since we use imagePullSecrets (acr-secret) in the workflow
+# resource "azurerm_role_assignment" "aks_acr" {
+#   scope                            = azurerm_container_registry.acr.id
+#   role_definition_name             = "AcrPull"
+#   principal_id                     = azurerm_kubernetes_cluster.main.kubelet_identity[0].object_id
+#   skip_service_principal_aad_check = true
+# }

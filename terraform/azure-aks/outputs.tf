@@ -8,6 +8,11 @@ output "resource_group_name" {
   value       = azurerm_resource_group.main.name
 }
 
+output "acr_name" {
+  description = "ACR Name"
+  value       = azurerm_container_registry.acr.name
+}
+
 output "acr_login_server" {
   description = "ACR Login Server"
   value       = azurerm_container_registry.acr.login_server

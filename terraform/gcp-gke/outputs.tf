@@ -13,6 +13,11 @@ output "region" {
   value       = var.region
 }
 
+output "zone" {
+  description = "GKE Cluster Zone"
+  value       = var.zone
+}
+
 output "project_id" {
   description = "GCP Project ID"
   value       = var.project_id

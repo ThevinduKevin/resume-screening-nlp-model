@@ -1,0 +1,169 @@
+name: AWS EKS Benchmark
+
+on:
+  workflow_dispatch:
+
+env:
+  DOCKER_IMAGE: ml-resume-api
+  DOCKER_TAG: latest
+
+jobs:
+  aws-eks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          lfs: true
+
+      - name: Pull LFS files
+        run: git lfs pull
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.31.0'
+
+      - name: Deploy EKS Infrastructure
+        working-directory: terraform/aws-eks
+        run: |
+          terraform init
+          gsutil rm gs://resume-screening-ml-terraform-bucket/aws-eks/default.tflock 2>/dev/null || true
+          terraform apply -auto-approve
+
+      - name: Configure kubectl for EKS
+        working-directory: terraform/aws-eks
+        run: |
+          aws eks update-kubeconfig --name $(terraform output -raw cluster_name) --region ap-south-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push Docker Image to ECR
+        working-directory: terraform/aws-eks
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          ECR_REPO=$(terraform output -raw ecr_repository_url)
+          cd ../..
+          docker build -t $ECR_REPO:$DOCKER_TAG .
+          docker push $ECR_REPO:$DOCKER_TAG
+          echo "IMAGE_URL=$ECR_REPO:$DOCKER_TAG" >> $GITHUB_ENV
+
+      - name: Deploy to Kubernetes
+        run: |
+          sed -i "s|IMAGE_PLACEHOLDER|$IMAGE_URL|g" k8s/deployment.yaml
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          echo "Waiting for deployment to be ready..."
+          kubectl rollout status deployment/ml-api --timeout=600s
+          echo "Waiting for LoadBalancer IP..."
+          for i in {1..30}; do
+            EXTERNAL_IP=$(kubectl get svc ml-api-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+            if [ -n "$EXTERNAL_IP" ]; then
+              echo "LoadBalancer hostname: $EXTERNAL_IP"
+              break
+            fi
+            echo "Attempt $i/30: Waiting for LoadBalancer..."
+            sleep 10
+          done
+          echo "TARGET_HOST=$EXTERNAL_IP" >> $GITHUB_ENV
+
+      - name: Debug pod issues
+        if: failure()
+        run: |
+          echo "=== Pod Status ==="
+          kubectl get pods -o wide
+          echo "=== Pod Events ==="
+          kubectl describe pods -l app=ml-api
+          echo "=== Pod Logs ==="
+          kubectl logs -l app=ml-api --tail=50 || true
+          echo "=== Node Resources ==="
+          kubectl describe nodes | grep -A 5 "Allocated resources"
+
+      - name: Wait for API to be ready
+        run: |
+          echo "Waiting for API to be ready at $TARGET_HOST..."
+          for i in {1..30}; do
+            if curl -sf http://$TARGET_HOST:8000/health > /dev/null 2>&1; then
+              echo "API is ready!"
+              sleep 10
+              break
+            fi
+            echo "Attempt $i/30: API not ready, waiting 10s..."
+            sleep 10
+          done
+          curl -sf --retry 3 --retry-delay 5 http://$TARGET_HOST:8000/health
+
+      - name: Run Locust tests
+        env:
+          RESULTS_DIR: results/aws-eks
+        run: |
+          set -e
+          mkdir -p $RESULTS_DIR
+          python3 -m venv locust-env
+          source locust-env/bin/activate
+          pip install --upgrade pip
+          pip install locust psutil zope-event
+          python scripts/collect_metrics.py &
+          export TARGET_IP=$TARGET_HOST
+          bash scripts/run_locust.sh
+          mv results/locust_*.csv $RESULTS_DIR/ || true
+          mv results/locust_*.log $RESULTS_DIR/ || true
+          mv results/system_metrics.csv $RESULTS_DIR/ || true
+
+      - name: Collect Kubernetes metrics
+        if: always()
+        env:
+          RESULTS_DIR: results/aws-eks
+        run: |
+          mkdir -p $RESULTS_DIR
+          kubectl top pods > $RESULTS_DIR/k8s_pod_metrics.txt 2>/dev/null || echo "Metrics not available" > $RESULTS_DIR/k8s_pod_metrics.txt
+          kubectl get pods -o wide > $RESULTS_DIR/k8s_pods.txt
+          kubectl describe deployment ml-api > $RESULTS_DIR/k8s_deployment.txt
+
+      - name: Upload results to Google Sheets
+        if: success()
+        run: |
+          pip install gspread google-auth
+          python scripts/upload_k8s_to_sheets.py aws-eks results/aws-eks
+
+      - name: Destroy AWS EKS Infrastructure
+        if: always()
+        working-directory: terraform/aws-eks
+        run: |
+          kubectl delete -f ../../k8s/service.yaml --ignore-not-found || true
+          kubectl delete -f ../../k8s/deployment.yaml --ignore-not-found || true
+          gsutil rm gs://resume-screening-ml-terraform-bucket/aws-eks/default.tflock 2>/dev/null || true
+          terraform destroy -auto-approve
+
+      - name: Upload AWS EKS results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-eks-results
+          path: results/aws-eks/

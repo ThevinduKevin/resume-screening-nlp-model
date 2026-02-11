@@ -1,8 +1,17 @@
 terraform {
+  backend "gcs" {
+    bucket = "resume-screening-ml-terraform-bucket"
+    prefix = "aws-eks"
+  }
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
+    }
+    time = {
+      source = "hashicorp/time"
+      version = "~> 0.9"
     }
   }
 }
@@ -122,11 +131,21 @@ resource "aws_iam_role_policy_attachment" "eks_container_registry" {
   role       = aws_iam_role.eks_nodes.name
 }
 
+# Wait for IAM role propagation
+resource "time_sleep" "wait_for_iam" {
+  depends_on = [
+    aws_iam_role_policy_attachment.eks_worker_node_policy,
+    aws_iam_role_policy_attachment.eks_cni_policy,
+    aws_iam_role_policy_attachment.eks_container_registry
+  ]
+  create_duration = "15s"
+}
+
 # EKS Cluster
 resource "aws_eks_cluster" "main" {
   name     = var.cluster_name
   role_arn = aws_iam_role.eks_cluster.arn
-  version  = "1.28"
+  version  = "1.31"
 
   vpc_config {
     subnet_ids              = aws_subnet.public[*].id
@@ -153,10 +172,10 @@ resource "aws_eks_node_group" "main" {
     min_size     = 1
   }
 
+  version = "1.31"
+
   depends_on = [
-    aws_iam_role_policy_attachment.eks_worker_node_policy,
-    aws_iam_role_policy_attachment.eks_cni_policy,
-    aws_iam_role_policy_attachment.eks_container_registry
+    time_sleep.wait_for_iam
   ]
 }
 

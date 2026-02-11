@@ -1,4 +1,9 @@
 terraform {
+  backend "gcs" {
+    bucket = "resume-screening-ml-terraform-bucket"
+    prefix = "gcp-gke"
+  }
+
   required_providers {
     google = {
       source  = "hashicorp/google"
@@ -12,23 +17,15 @@ provider "google" {
   region  = var.region
 }
 
-# Enable required APIs
-resource "google_project_service" "container" {
-  service            = "container.googleapis.com"
-  disable_on_destroy = false
-}
-
-resource "google_project_service" "compute" {
-  service            = "compute.googleapis.com"
-  disable_on_destroy = false
-}
+# NOTE: Enable these APIs manually in GCP Console before running:
+# - container.googleapis.com (Kubernetes Engine API)
+# - compute.googleapis.com (Compute Engine API)
+# - cloudresourcemanager.googleapis.com (Cloud Resource Manager API)
 
 # VPC Network
 resource "google_compute_network" "vpc" {
   name                    = "gke-vpc"
   auto_create_subnetworks = false
-
-  depends_on = [google_project_service.compute]
 }
 
 # Subnet
@@ -49,10 +46,12 @@ resource "google_compute_subnetwork" "subnet" {
   }
 }
 
-# GKE Cluster
+# GKE Cluster (Zonal to avoid multi-zone capacity issues)
 resource "google_container_cluster" "primary" {
   name     = var.cluster_name
-  location = var.region
+  location = var.zone
+
+  deletion_protection = false
 
   # We can't create a cluster with no node pool defined, but we want to only use
   # separately managed node pools. So we create the smallest possible default
@@ -72,20 +71,18 @@ resource "google_container_cluster" "primary" {
   workload_identity_config {
     workload_pool = "${var.project_id}.svc.id.goog"
   }
-
-  depends_on = [google_project_service.container]
 }
 
 # GKE Node Pool
 resource "google_container_node_pool" "primary_nodes" {
   name       = "ml-node-pool"
-  location   = var.region
+  location   = var.zone
   cluster    = google_container_cluster.primary.name
-  node_count = 2
+  node_count = 2  # Reduced for free credits
 
   node_config {
     machine_type = var.node_machine_type
-    disk_size_gb = 50
+    disk_size_gb = 50  # Reduced from 100GB to save costs
 
     oauth_scopes = [
       "https://www.googleapis.com/auth/cloud-platform"

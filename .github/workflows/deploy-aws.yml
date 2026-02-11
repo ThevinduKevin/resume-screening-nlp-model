@@ -1,0 +1,156 @@
+name: AWS VM Benchmark
+
+on:
+  workflow_dispatch:
+
+jobs:
+  aws:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: Generate SSH key pair
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N "" -q
+          chmod 600 ~/.ssh/id_rsa
+          echo "SSH_PUBLIC_KEY=$(cat ~/.ssh/id_rsa.pub)" >> $GITHUB_ENV
+
+      - name: Deploy AWS Infrastructure
+        working-directory: terraform/aws
+        run: |
+          terraform init
+          # Remove any stale lock files from previous failed runs
+          gsutil rm gs://resume-screening-ml-terraform-bucket/aws/default.tflock 2>/dev/null || true
+          terraform apply -auto-approve -var="ssh_public_key=$SSH_PUBLIC_KEY"
+
+      - name: Setup SSH known hosts
+        run: |
+          cd terraform/aws
+          TARGET_IP=$(terraform output -raw public_ip)
+          cd ../..
+          ssh-keyscan -H $TARGET_IP >> ~/.ssh/known_hosts || true
+
+      - name: Run Locust tests
+        env:
+          RESULTS_DIR: results/aws
+        run: |
+          set -e
+
+          mkdir -p $RESULTS_DIR
+
+          cd terraform/aws
+          TARGET_IP=$(terraform output -raw public_ip)
+          cd ../..
+
+          echo "Target IP: $TARGET_IP"
+          echo "Waiting 60s for EC2 to be ready for SSH..."
+          sleep 60
+
+          echo "=== Testing SSH ==="
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@$TARGET_IP "echo SSH_OK"
+
+          echo "=== Waiting for user_data.sh to complete ==="
+          for i in {1..30}; do
+            if ssh -i ~/.ssh/id_rsa ubuntu@$TARGET_IP "sudo grep -q 'Setup complete' /var/log/user_data.log 2>/dev/null"; then
+              echo "user_data.sh completed!"
+              break
+            fi
+            echo "Attempt $i/30: user_data still running, waiting 10s..."
+            sleep 10
+          done
+
+          echo "=== Checking ML API service status ==="
+          ssh -i ~/.ssh/id_rsa ubuntu@$TARGET_IP << 'EOF'
+            echo "--- user_data log (last 30 lines) ---"
+            sudo tail -30 /var/log/user_data.log || true
+            
+            echo "--- ml-api service status ---"
+            sudo systemctl status ml-api || true
+            
+            if ! sudo systemctl is-active --quiet ml-api; then
+              echo "Service not running, attempting restart..."
+              sudo systemctl restart ml-api || true
+              sleep 5
+            fi
+            
+            echo "--- Listening on port 8000 ---"
+            ss -tulpn | grep 8000 || echo "Port 8000 not yet listening"
+          EOF
+
+          echo "=== Waiting for API to be ready ==="
+          for i in {1..12}; do
+            if curl -sf http://$TARGET_IP:8000/health > /dev/null 2>&1; then
+              echo "API is ready!"
+              break
+            fi
+            echo "Attempt $i/12: API not ready, waiting 10s..."
+            sleep 10
+          done
+
+          echo "=== Testing API health endpoint ==="
+          curl -f http://$TARGET_IP:8000/health
+
+          echo "=== Starting remote metrics collection ==="
+          scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no scripts/collect_remote_metrics.sh ubuntu@$TARGET_IP:/tmp/
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 ubuntu@$TARGET_IP "chmod +x /tmp/collect_remote_metrics.sh && nohup /tmp/collect_remote_metrics.sh /tmp/instance_metrics.csv 600 5 > /tmp/metrics.log 2>&1 < /dev/null & disown"
+
+          python3 -m venv locust-env
+          source locust-env/bin/activate
+
+          pip install --upgrade pip
+          pip install locust psutil zope-event
+
+          export TARGET_IP=$TARGET_IP
+          bash scripts/run_locust.sh
+
+          echo "=== Downloading instance metrics ==="
+          scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@$TARGET_IP:/tmp/instance_metrics.csv $RESULTS_DIR/ || true
+
+          mv results/locust_*.csv $RESULTS_DIR/ || true
+          mv results/locust_*.log $RESULTS_DIR/ || true
+
+      - name: Upload results to Google Sheets
+        if: success()
+        run: |
+          pip install gspread google-auth
+          python scripts/upload_to_sheets.py aws results/aws
+
+      - name: Destroy AWS Infrastructure
+        if: always()
+        working-directory: terraform/aws
+        run: |
+          # Remove any stale lock files from previous failed runs
+          gsutil rm gs://resume-screening-ml-terraform-bucket/aws/default.tflock 2>/dev/null || true
+          terraform destroy -auto-approve -var="ssh_public_key=$SSH_PUBLIC_KEY"
+
+      - name: Upload AWS results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-results
+          path: results/aws/
