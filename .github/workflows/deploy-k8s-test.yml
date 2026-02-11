@@ -1,4 +1,4 @@
-name: Multi-Cloud K8s ML Benchmark
+name: Multi-Cloud K8s ML Benchmark (LEGACY)
 
 on:
   workflow_dispatch:

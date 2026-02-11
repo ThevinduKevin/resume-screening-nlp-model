@@ -1,4 +1,4 @@
-name: Multi-Cloud ML Benchmark
+name: Multi-Cloud ML Benchmark (LEGACY)
 
 on:
   workflow_dispatch:
