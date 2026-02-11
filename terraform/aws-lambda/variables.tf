@@ -11,7 +11,7 @@ variable "function_name" {
 }
 
 variable "memory_size" {
-  description = "Lambda memory size in MB"
+  description = "Lambda memory size in MB (CPU allocated proportionally)"
   type        = number
-  default     = 2048  # 2GB for ML model
+  default     = 8192  # 8GB to match VM/K8s deployments
 }

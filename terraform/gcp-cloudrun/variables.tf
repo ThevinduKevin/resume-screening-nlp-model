@@ -18,13 +18,13 @@ variable "service_name" {
 variable "cpu_limit" {
   description = "CPU limit for Cloud Run"
   type        = string
-  default     = "2"  # 2 vCPUs
+  default     = "2"  # 2 vCPUs to match VM/K8s
 }
 
 variable "memory_limit" {
   description = "Memory limit for Cloud Run"
   type        = string
-  default     = "4Gi"  # 4GB for ML model
+  default     = "8Gi"  # 8GB to match VM/K8s deployments
 }
 
 variable "min_instances" {
