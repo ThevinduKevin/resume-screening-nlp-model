@@ -1,0 +1,198 @@
+name: Azure Container Apps Benchmark
+
+on:
+  workflow_dispatch:
+
+env:
+  DOCKER_IMAGE: ml-resume-api
+  DOCKER_TAG: latest
+
+jobs:
+  azure-container-apps:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          lfs: true
+
+      - name: Pull LFS files
+        run: git lfs pull
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Extract Azure Subscription ID
+        run: |
+          SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r '.subscriptionId')
+          echo "ARM_SUBSCRIPTION_ID=$SUBSCRIPTION_ID" >> $GITHUB_ENV
+
+      - name: Cleanup existing Azure resources
+        run: |
+          echo "Checking for existing resource group..."
+          if az group exists --name ml-serverless-rg | grep -q true; then
+            echo "Resource group exists, deleting..."
+            az group delete --name ml-serverless-rg --yes || true
+            echo "Waiting for resource group to be fully deleted..."
+            for i in {1..30}; do
+              if az group exists --name ml-serverless-rg | grep -q false; then
+                echo "Resource group deleted!"
+                break
+              fi
+              echo "Attempt $i/30: Still deleting, waiting 30s..."
+              sleep 30
+            done
+          fi
+
+      - name: Deploy Container Apps Infrastructure (Phase 1 - ACR)
+        working-directory: terraform/azure-container-apps
+        run: |
+          terraform init
+          gsutil rm gs://resume-screening-ml-terraform-bucket/azure-container-apps/default.tflock 2>/dev/null || true
+          gsutil rm gs://resume-screening-ml-terraform-bucket/azure-container-apps/default.tfstate 2>/dev/null || true
+          terraform init -reconfigure
+          # First create Resource Group and ACR
+          terraform apply -auto-approve \
+            -target=azurerm_resource_group.rg \
+            -target=azurerm_container_registry.acr \
+            -var="subscription_id=$ARM_SUBSCRIPTION_ID"
+
+      - name: Login to Azure Container Registry
+        working-directory: terraform/azure-container-apps
+        run: |
+          ACR_NAME=$(terraform output -raw acr_name)
+          az acr login --name $ACR_NAME
+          echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
+
+      - name: Build and Push Docker Image to ACR
+        working-directory: terraform/azure-container-apps
+        run: |
+          ACR_LOGIN_SERVER=$(terraform output -raw acr_login_server)
+          cd ../..
+          IMAGE_URL="$ACR_LOGIN_SERVER/$DOCKER_IMAGE:$DOCKER_TAG"
+          docker build -t $IMAGE_URL .
+          docker push $IMAGE_URL
+          echo "IMAGE_URL=$IMAGE_URL" >> $GITHUB_ENV
+
+      - name: Deploy Container Apps Infrastructure (Phase 2 - Full)
+        working-directory: terraform/azure-container-apps
+        run: |
+          terraform apply -auto-approve -var="subscription_id=$ARM_SUBSCRIPTION_ID"
+          echo "APP_URL=$(terraform output -raw app_url)" >> $GITHUB_ENV
+
+      - name: Update Container App with new image
+        working-directory: terraform/azure-container-apps
+        run: |
+          APP_NAME=$(terraform output -raw app_name)
+          RESOURCE_GROUP=$(terraform output -raw resource_group_name)
+          az containerapp update \
+            --name $APP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --image $IMAGE_URL
+          echo "Waiting for Container App deployment..."
+          sleep 60
+
+      - name: Wait for API to be ready
+        run: |
+          echo "Waiting for Container Apps API to be ready at $APP_URL..."
+          for i in {1..30}; do
+            if curl -sf "$APP_URL/health" > /dev/null 2>&1; then
+              echo "API is ready!"
+              break
+            fi
+            echo "Attempt $i/30: API not ready, waiting 10s..."
+            sleep 10
+          done
+          curl -f "$APP_URL/health"
+
+      - name: Measure cold starts
+        env:
+          RESULTS_DIR: results/azure-container-apps
+        run: |
+          set -e
+          mkdir -p $RESULTS_DIR
+          python3 -m venv test-env
+          source test-env/bin/activate
+          pip install requests
+          # Measure cold starts (3 tests with 90 second wait between)
+          python scripts/measure_cold_starts.py "$APP_URL" "$RESULTS_DIR/cold_start_metrics.csv" 3 90
+
+      - name: Run Locust tests
+        env:
+          RESULTS_DIR: results/azure-container-apps
+        run: |
+          set -e
+          mkdir -p $RESULTS_DIR
+          python3 -m venv locust-env
+          source locust-env/bin/activate
+          pip install --upgrade pip
+          pip install locust psutil zope-event
+          python scripts/collect_metrics.py &
+          # Extract host from URL
+          export TARGET_IP=$(echo "$APP_URL" | sed 's|https://||' | sed 's|http://||')
+          export TARGET_PROTOCOL="https"
+          bash scripts/run_locust.sh
+          mv results/locust_*.csv $RESULTS_DIR/ || true
+          mv results/locust_*.log $RESULTS_DIR/ || true
+          mv results/system_metrics.csv $RESULTS_DIR/ || true
+
+      - name: Collect Container Apps metrics
+        if: always()
+        env:
+          RESULTS_DIR: results/azure-container-apps
+        working-directory: terraform/azure-container-apps
+        run: |
+          mkdir -p ../../$RESULTS_DIR
+          APP_NAME=$(terraform output -raw app_name)
+          RESOURCE_GROUP=$(terraform output -raw resource_group_name)
+          
+          # Get Container App details
+          az containerapp show \
+            --name $APP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --output json > ../../$RESULTS_DIR/container_app_details.json || true
+          
+          # Get Container App revisions
+          az containerapp revision list \
+            --name $APP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --output json > ../../$RESULTS_DIR/container_app_revisions.json || true
+
+      - name: Upload results to Google Sheets
+        if: success()
+        run: |
+          pip install gspread google-auth
+          python scripts/upload_serverless_to_sheets.py azure-container-apps results/azure-container-apps
+
+      - name: Destroy Azure Container Apps Infrastructure
+        if: always()
+        working-directory: terraform/azure-container-apps
+        run: |
+          gsutil rm gs://resume-screening-ml-terraform-bucket/azure-container-apps/default.tflock 2>/dev/null || true
+          terraform destroy -auto-approve -var="subscription_id=$ARM_SUBSCRIPTION_ID" || true
+          az group delete --name ml-serverless-rg --yes --no-wait || true
+
+      - name: Upload Azure Container Apps results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: azure-container-apps-results
+          path: results/azure-container-apps/

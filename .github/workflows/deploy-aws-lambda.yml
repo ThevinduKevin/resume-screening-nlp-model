@@ -1,0 +1,188 @@
+name: AWS Lambda Benchmark
+
+on:
+  workflow_dispatch:
+
+env:
+  DOCKER_IMAGE: ml-resume-lambda
+  DOCKER_TAG: latest
+
+jobs:
+  aws-lambda:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          lfs: true
+
+      - name: Pull LFS files
+        run: git lfs pull
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: Deploy Lambda Infrastructure (Phase 1 - ECR only)
+        working-directory: terraform/aws-lambda
+        run: |
+          terraform init
+          gsutil rm gs://resume-screening-ml-terraform-bucket/aws-lambda/default.tflock 2>/dev/null || true
+          # First create just the ECR repository
+          terraform apply -auto-approve -target=aws_ecr_repository.lambda_repo
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push Docker Image to ECR
+        working-directory: terraform/aws-lambda
+        run: |
+          ECR_REPO=$(terraform output -raw ecr_repository_url)
+          cd ../..
+          # Build Lambda-specific image
+          docker build -f Dockerfile.lambda -t $ECR_REPO:$DOCKER_TAG .
+          docker push $ECR_REPO:$DOCKER_TAG
+          echo "IMAGE_URL=$ECR_REPO:$DOCKER_TAG" >> $GITHUB_ENV
+
+      - name: Deploy Lambda Infrastructure (Phase 2 - Full)
+        working-directory: terraform/aws-lambda
+        run: |
+          terraform apply -auto-approve
+          echo "API_URL=$(terraform output -raw api_gateway_url)" >> $GITHUB_ENV
+          echo "FUNCTION_URL=$(terraform output -raw function_url)" >> $GITHUB_ENV
+
+      - name: Update Lambda with new image
+        working-directory: terraform/aws-lambda
+        run: |
+          FUNCTION_NAME=$(terraform output -raw function_name)
+          ECR_REPO=$(terraform output -raw ecr_repository_url)
+          aws lambda update-function-code \
+            --function-name $FUNCTION_NAME \
+            --image-uri $ECR_REPO:$DOCKER_TAG
+          echo "Waiting for Lambda update to complete..."
+          aws lambda wait function-updated --function-name $FUNCTION_NAME
+          echo "Lambda function updated successfully"
+
+      - name: Wait for API to be ready
+        run: |
+          echo "Waiting for Lambda API to be ready at $API_URL..."
+          for i in {1..30}; do
+            if curl -sf "$API_URL/health" > /dev/null 2>&1; then
+              echo "API is ready!"
+              break
+            fi
+            echo "Attempt $i/30: API not ready, waiting 10s..."
+            sleep 10
+          done
+          curl -f "$API_URL/health"
+          echo "TARGET_HOST=$API_URL" >> $GITHUB_ENV
+
+      - name: Measure cold starts
+        env:
+          RESULTS_DIR: results/aws-lambda
+        run: |
+          set -e
+          mkdir -p $RESULTS_DIR
+          python3 -m venv test-env
+          source test-env/bin/activate
+          pip install requests
+          # Measure cold starts (3 tests with 90 second wait between)
+          python scripts/measure_cold_starts.py "$API_URL" "$RESULTS_DIR/cold_start_metrics.csv" 3 90
+
+      - name: Run Locust tests
+        env:
+          RESULTS_DIR: results/aws-lambda
+        run: |
+          set -e
+          mkdir -p $RESULTS_DIR
+          python3 -m venv locust-env
+          source locust-env/bin/activate
+          pip install --upgrade pip
+          pip install locust psutil zope-event
+          python scripts/collect_metrics.py &
+          # Use API Gateway URL (without trailing slash issues)
+          export TARGET_IP=$(echo "$API_URL" | sed 's|https://||' | sed 's|http://||')
+          export TARGET_PROTOCOL="https"
+          bash scripts/run_locust.sh
+          mv results/locust_*.csv $RESULTS_DIR/ || true
+          mv results/locust_*.log $RESULTS_DIR/ || true
+          mv results/system_metrics.csv $RESULTS_DIR/ || true
+
+      - name: Collect Lambda metrics
+        if: always()
+        env:
+          RESULTS_DIR: results/aws-lambda
+        working-directory: terraform/aws-lambda
+        run: |
+          mkdir -p ../../$RESULTS_DIR
+          FUNCTION_NAME=$(terraform output -raw function_name)
+          # Get Lambda metrics from CloudWatch
+          aws cloudwatch get-metric-statistics \
+            --namespace AWS/Lambda \
+            --metric-name Duration \
+            --dimensions Name=FunctionName,Value=$FUNCTION_NAME \
+            --start-time $(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ) \
+            --end-time $(date -u +%Y-%m-%dT%H:%M:%SZ) \
+            --period 60 \
+            --statistics Average Maximum Minimum \
+            > ../../$RESULTS_DIR/lambda_duration_metrics.json || true
+          
+          aws cloudwatch get-metric-statistics \
+            --namespace AWS/Lambda \
+            --metric-name Invocations \
+            --dimensions Name=FunctionName,Value=$FUNCTION_NAME \
+            --start-time $(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ) \
+            --end-time $(date -u +%Y-%m-%dT%H:%M:%SZ) \
+            --period 60 \
+            --statistics Sum \
+            > ../../$RESULTS_DIR/lambda_invocations_metrics.json || true
+          
+          aws cloudwatch get-metric-statistics \
+            --namespace AWS/Lambda \
+            --metric-name ConcurrentExecutions \
+            --dimensions Name=FunctionName,Value=$FUNCTION_NAME \
+            --start-time $(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ) \
+            --end-time $(date -u +%Y-%m-%dT%H:%M:%SZ) \
+            --period 60 \
+            --statistics Maximum \
+            > ../../$RESULTS_DIR/lambda_concurrent_metrics.json || true
+
+      - name: Upload results to Google Sheets
+        if: success()
+        run: |
+          pip install gspread google-auth
+          python scripts/upload_serverless_to_sheets.py aws-lambda results/aws-lambda
+
+      - name: Destroy AWS Lambda Infrastructure
+        if: always()
+        working-directory: terraform/aws-lambda
+        run: |
+          gsutil rm gs://resume-screening-ml-terraform-bucket/aws-lambda/default.tflock 2>/dev/null || true
+          terraform destroy -auto-approve
+
+      - name: Upload AWS Lambda results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-lambda-results
+          path: results/aws-lambda/
