@@ -1,0 +1,180 @@
+name: GCP Cloud Run Benchmark
+
+on:
+  workflow_dispatch:
+
+env:
+  DOCKER_IMAGE: ml-resume-api
+  DOCKER_TAG: latest
+
+jobs:
+  gcp-cloudrun:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          lfs: true
+
+      - name: Pull LFS files
+        run: git lfs pull
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Deploy Cloud Run Infrastructure (Phase 1 - Artifact Registry)
+        working-directory: terraform/gcp-cloudrun
+        env:
+          TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          terraform init
+          gsutil rm gs://resume-screening-ml-terraform-bucket/gcp-cloudrun/default.tflock 2>/dev/null || true
+          # First create just the Artifact Registry
+          terraform apply -auto-approve \
+            -target=google_project_service.artifactregistry \
+            -target=google_project_service.run \
+            -target=google_artifact_registry_repository.ml_repo
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
+
+      - name: Build and Push Docker Image to Artifact Registry
+        working-directory: terraform/gcp-cloudrun
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          ARTIFACT_REGISTRY_URL=$(terraform output -raw artifact_registry_url)
+          cd ../..
+          IMAGE_URL="$ARTIFACT_REGISTRY_URL/$DOCKER_IMAGE:$DOCKER_TAG"
+          docker build -t $IMAGE_URL .
+          docker push $IMAGE_URL
+          echo "IMAGE_URL=$IMAGE_URL" >> $GITHUB_ENV
+
+      - name: Deploy Cloud Run Infrastructure (Phase 2 - Full)
+        working-directory: terraform/gcp-cloudrun
+        env:
+          TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          terraform apply -auto-approve
+          echo "SERVICE_URL=$(terraform output -raw service_url)" >> $GITHUB_ENV
+
+      - name: Update Cloud Run with new image
+        working-directory: terraform/gcp-cloudrun
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          SERVICE_NAME=$(terraform output -raw service_name)
+          REGION=$(terraform output -raw region)
+          gcloud run services update $SERVICE_NAME \
+            --image=$IMAGE_URL \
+            --region=$REGION \
+            --project=$PROJECT_ID
+          echo "Waiting for Cloud Run deployment..."
+          sleep 30
+
+      - name: Wait for API to be ready
+        run: |
+          echo "Waiting for Cloud Run API to be ready at $SERVICE_URL..."
+          for i in {1..30}; do
+            if curl -sf "$SERVICE_URL/health" > /dev/null 2>&1; then
+              echo "API is ready!"
+              break
+            fi
+            echo "Attempt $i/30: API not ready, waiting 10s..."
+            sleep 10
+          done
+          curl -f "$SERVICE_URL/health"
+
+      - name: Measure cold starts
+        env:
+          RESULTS_DIR: results/gcp-cloudrun
+        run: |
+          set -e
+          mkdir -p $RESULTS_DIR
+          python3 -m venv test-env
+          source test-env/bin/activate
+          pip install requests
+          # Measure cold starts (3 tests with 90 second wait between)
+          python scripts/measure_cold_starts.py "$SERVICE_URL" "$RESULTS_DIR/cold_start_metrics.csv" 3 90
+
+      - name: Run Locust tests
+        env:
+          RESULTS_DIR: results/gcp-cloudrun
+        run: |
+          set -e
+          mkdir -p $RESULTS_DIR
+          python3 -m venv locust-env
+          source locust-env/bin/activate
+          pip install --upgrade pip
+          pip install locust psutil zope-event
+          python scripts/collect_metrics.py &
+          # Extract host from URL
+          export TARGET_IP=$(echo "$SERVICE_URL" | sed 's|https://||' | sed 's|http://||')
+          export TARGET_PROTOCOL="https"
+          bash scripts/run_locust.sh
+          mv results/locust_*.csv $RESULTS_DIR/ || true
+          mv results/locust_*.log $RESULTS_DIR/ || true
+          mv results/system_metrics.csv $RESULTS_DIR/ || true
+
+      - name: Collect Cloud Run metrics
+        if: always()
+        env:
+          RESULTS_DIR: results/gcp-cloudrun
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        working-directory: terraform/gcp-cloudrun
+        run: |
+          mkdir -p ../../$RESULTS_DIR
+          SERVICE_NAME=$(terraform output -raw service_name)
+          REGION=$(terraform output -raw region)
+          
+          # Get Cloud Run revision details
+          gcloud run revisions list \
+            --service=$SERVICE_NAME \
+            --region=$REGION \
+            --project=$PROJECT_ID \
+            --format=json > ../../$RESULTS_DIR/cloudrun_revisions.json || true
+          
+          # Get Cloud Run service description
+          gcloud run services describe $SERVICE_NAME \
+            --region=$REGION \
+            --project=$PROJECT_ID \
+            --format=json > ../../$RESULTS_DIR/cloudrun_service.json || true
+
+      - name: Upload results to Google Sheets
+        if: success()
+        run: |
+          pip install gspread google-auth
+          python scripts/upload_serverless_to_sheets.py gcp-cloudrun results/gcp-cloudrun
+
+      - name: Destroy GCP Cloud Run Infrastructure
+        if: always()
+        working-directory: terraform/gcp-cloudrun
+        env:
+          TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          gsutil rm gs://resume-screening-ml-terraform-bucket/gcp-cloudrun/default.tflock 2>/dev/null || true
+          terraform destroy -auto-approve
+
+      - name: Upload GCP Cloud Run results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gcp-cloudrun-results
+          path: results/gcp-cloudrun/
