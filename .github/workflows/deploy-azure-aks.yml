@@ -1,0 +1,216 @@
+name: Azure AKS Benchmark
+
+on:
+  workflow_dispatch:
+
+env:
+  DOCKER_IMAGE: ml-resume-api
+  DOCKER_TAG: latest
+
+jobs:
+  azure-aks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          lfs: true
+
+      - name: Pull LFS files
+        run: git lfs pull
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Extract Azure Subscription ID
+        run: |
+          SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r '.subscriptionId')
+          echo "ARM_SUBSCRIPTION_ID=$SUBSCRIPTION_ID" >> $GITHUB_ENV
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.31.0'
+
+      - name: Cleanup existing Azure resources
+        run: |
+          echo "Checking for existing resource group..."
+          if az group exists --name ml-benchmark-rg | grep -q true; then
+            echo "Resource group exists, deleting..."
+            az group delete --name ml-benchmark-rg --yes || true
+            echo "Waiting for resource group to be fully deleted..."
+            for i in {1..30}; do
+              if az group exists --name ml-benchmark-rg | grep -q false; then
+                echo "Resource group deleted!"
+                break
+              fi
+              echo "Attempt $i/30: Still deleting, waiting 30s..."
+              sleep 30
+            done
+          fi
+
+      - name: Deploy AKS Infrastructure
+        working-directory: terraform/azure-aks
+        run: |
+          terraform init
+          gsutil rm gs://resume-screening-ml-terraform-bucket/azure-aks/default.tflock 2>/dev/null || true
+          gsutil rm gs://resume-screening-ml-terraform-bucket/azure-aks/default.tfstate 2>/dev/null || true
+          terraform init -reconfigure
+          terraform apply -auto-approve
+
+      - name: Configure kubectl for AKS
+        working-directory: terraform/azure-aks
+        run: |
+          az aks get-credentials --resource-group $(terraform output -raw resource_group_name) --name $(terraform output -raw cluster_name) --overwrite-existing
+
+      - name: Create ACR image pull secret
+        working-directory: terraform/azure-aks
+        run: |
+          ACR_LOGIN_SERVER=$(terraform output -raw acr_login_server)
+          ACR_USERNAME=$(terraform output -raw acr_admin_username)
+          ACR_PASSWORD=$(terraform output -raw acr_admin_password)
+          kubectl create secret docker-registry acr-secret \
+            --docker-server=$ACR_LOGIN_SERVER \
+            --docker-username=$ACR_USERNAME \
+            --docker-password=$ACR_PASSWORD \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Login to Azure Container Registry
+        working-directory: terraform/azure-aks
+        run: |
+          ACR_NAME=$(terraform output -raw acr_name)
+          az acr login --name $ACR_NAME
+          echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
+
+      - name: Build and Push Docker Image to ACR
+        working-directory: terraform/azure-aks
+        run: |
+          ACR_LOGIN_SERVER=$(terraform output -raw acr_login_server)
+          cd ../..
+          IMAGE_URL="$ACR_LOGIN_SERVER/$DOCKER_IMAGE:$DOCKER_TAG"
+          docker build -t $IMAGE_URL .
+          docker push $IMAGE_URL
+          echo "IMAGE_URL=$IMAGE_URL" >> $GITHUB_ENV
+
+      - name: Deploy to Kubernetes
+        run: |
+          sed -i "s|IMAGE_PLACEHOLDER|$IMAGE_URL|g" k8s/deployment.yaml
+          kubectl apply -f k8s/deployment.yaml
+          kubectl patch deployment ml-api -p '{"spec":{"template":{"spec":{"imagePullSecrets":[{"name":"acr-secret"}]}}}}'
+          kubectl apply -f k8s/service.yaml
+          echo "Waiting for old pods to terminate..."
+          sleep 10
+          echo "Waiting for deployment to be ready..."
+          kubectl rollout status deployment/ml-api --timeout=600s || true
+          echo "=== DEBUG: Pod Status ==="
+          kubectl get pods -o wide
+          echo "=== DEBUG: Pod Events ==="
+          kubectl describe pods -l app=ml-api
+          echo "=== DEBUG: Pod Logs ==="
+          kubectl logs -l app=ml-api --tail=100 || true
+          echo "=== DEBUG: Node Resources ==="
+          kubectl describe nodes | grep -A 10 "Allocated resources"
+          echo "Waiting for LoadBalancer IP..."
+          for i in {1..30}; do
+            EXTERNAL_IP=$(kubectl get svc ml-api-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+            if [ -n "$EXTERNAL_IP" ]; then
+              echo "LoadBalancer IP: $EXTERNAL_IP"
+              break
+            fi
+            echo "Attempt $i/30: Waiting for LoadBalancer..."
+            sleep 10
+          done
+          echo "TARGET_HOST=$EXTERNAL_IP" >> $GITHUB_ENV
+
+      - name: Debug pod issues
+        if: failure()
+        run: |
+          echo "=== Pod Status ==="
+          kubectl get pods -o wide
+          echo "=== Pod Events ==="
+          kubectl describe pods -l app=ml-api
+          echo "=== Pod Logs ==="
+          kubectl logs -l app=ml-api --tail=50 || true
+          echo "=== Node Resources ==="
+          kubectl describe nodes | grep -A 5 "Allocated resources"
+
+      - name: Wait for API to be ready
+        run: |
+          echo "Waiting for API to be ready at $TARGET_HOST..."
+          for i in {1..30}; do
+            if curl -sf http://$TARGET_HOST:8000/health > /dev/null 2>&1; then
+              echo "API is ready!"
+              break
+            fi
+            echo "Attempt $i/30: API not ready, waiting 10s..."
+            sleep 10
+          done
+          curl -f http://$TARGET_HOST:8000/health
+
+      - name: Run Locust tests
+        env:
+          RESULTS_DIR: results/azure-aks
+        run: |
+          set -e
+          mkdir -p $RESULTS_DIR
+          python3 -m venv locust-env
+          source locust-env/bin/activate
+          pip install --upgrade pip
+          pip install locust psutil zope-event
+          python scripts/collect_metrics.py &
+          export TARGET_IP=$TARGET_HOST
+          bash scripts/run_locust.sh
+          mv results/locust_*.csv $RESULTS_DIR/ || true
+          mv results/locust_*.log $RESULTS_DIR/ || true
+          mv results/system_metrics.csv $RESULTS_DIR/ || true
+
+      - name: Collect Kubernetes metrics
+        if: always()
+        env:
+          RESULTS_DIR: results/azure-aks
+        run: |
+          mkdir -p $RESULTS_DIR
+          kubectl top pods > $RESULTS_DIR/k8s_pod_metrics.txt 2>/dev/null || echo "Metrics not available" > $RESULTS_DIR/k8s_pod_metrics.txt
+          kubectl get pods -o wide > $RESULTS_DIR/k8s_pods.txt
+          kubectl describe deployment ml-api > $RESULTS_DIR/k8s_deployment.txt
+
+      - name: Upload results to Google Sheets
+        if: success()
+        run: |
+          pip install gspread google-auth
+          python scripts/upload_k8s_to_sheets.py azure-aks results/azure-aks
+
+      - name: Destroy Azure AKS Infrastructure
+        if: always()
+        working-directory: terraform/azure-aks
+        run: |
+          kubectl delete -f ../../k8s/service.yaml --ignore-not-found || true
+          kubectl delete -f ../../k8s/deployment.yaml --ignore-not-found || true
+          gsutil rm gs://resume-screening-ml-terraform-bucket/azure-aks/default.tflock 2>/dev/null || true
+          terraform destroy -auto-approve || true
+          az group delete --name ml-benchmark-rg --yes --no-wait || true
+
+      - name: Upload Azure AKS results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: azure-aks-results
+          path: results/azure-aks/

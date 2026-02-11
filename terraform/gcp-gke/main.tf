@@ -46,10 +46,10 @@ resource "google_compute_subnetwork" "subnet" {
   }
 }
 
-# GKE Cluster
+# GKE Cluster (Zonal to avoid multi-zone capacity issues)
 resource "google_container_cluster" "primary" {
   name     = var.cluster_name
-  location = var.region
+  location = var.zone
 
   deletion_protection = false
 
@@ -58,12 +58,6 @@ resource "google_container_cluster" "primary" {
   # node pool and immediately delete it.
   remove_default_node_pool = true
   initial_node_count       = 1
-
-  # Force default node pool to use pd-standard to avoid SSD quota
-  node_config {
-    disk_type    = "pd-standard"
-    disk_size_gb = 30
-  }
 
   network    = google_compute_network.vpc.name
   subnetwork = google_compute_subnetwork.subnet.name
@@ -82,14 +76,13 @@ resource "google_container_cluster" "primary" {
 # GKE Node Pool
 resource "google_container_node_pool" "primary_nodes" {
   name       = "ml-node-pool"
-  location   = var.region
+  location   = var.zone
   cluster    = google_container_cluster.primary.name
-  node_count = 2
+  node_count = 2  # Reduced for free credits
 
   node_config {
     machine_type = var.node_machine_type
-    disk_size_gb = 50
-    disk_type    = "pd-standard"
+    disk_size_gb = 50  # Reduced from 100GB to save costs
 
     oauth_scopes = [
       "https://www.googleapis.com/auth/cloud-platform"

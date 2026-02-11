@@ -9,6 +9,12 @@ variable "region" {
   default     = "asia-south1"
 }
 
+variable "zone" {
+  description = "GCP zone for zonal cluster (avoids multi-zone capacity issues)"
+  type        = string
+  default     = "asia-south1-a"
+}
+
 variable "cluster_name" {
   description = "GKE cluster name"
   type        = string

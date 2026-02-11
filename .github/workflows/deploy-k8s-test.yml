@@ -189,12 +189,15 @@ jobs:
         run: |
           terraform init
           gsutil rm gs://resume-screening-ml-terraform-bucket/gcp-gke/default.tflock 2>/dev/null || true
-          gcloud container clusters delete ml-benchmark-gke --region asia-south1 --project ${{ secrets.GCP_PROJECT_ID }} --quiet 2>/dev/null || true
-          gcloud compute firewall-rules delete allow-lb-traffic --project ${{ secrets.GCP_PROJECT_ID }} --quiet 2>/dev/null || true
-          gcloud compute networks subnets delete gke-subnet --region asia-south1 --project ${{ secrets.GCP_PROJECT_ID }} --quiet 2>/dev/null || true
-          gcloud compute networks delete gke-vpc --project ${{ secrets.GCP_PROJECT_ID }} --quiet 2>/dev/null || true
-          gsutil rm gs://resume-screening-ml-terraform-bucket/gcp-gke/default.tfstate 2>/dev/null || true
-          terraform init -reconfigure
+          if ! terraform plan -detailed-exitcode 2>/dev/null; then
+            echo "State mismatch detected, cleaning up..."
+            gcloud container clusters delete ml-benchmark-gke --region asia-south1 --project ${{ secrets.GCP_PROJECT_ID }} --quiet 2>/dev/null || true
+            gcloud compute firewall-rules delete allow-lb-traffic --project ${{ secrets.GCP_PROJECT_ID }} --quiet 2>/dev/null || true
+            gcloud compute networks subnets delete gke-subnet --region asia-south1 --project ${{ secrets.GCP_PROJECT_ID }} --quiet 2>/dev/null || true
+            gcloud compute networks delete gke-vpc --project ${{ secrets.GCP_PROJECT_ID }} --quiet 2>/dev/null || true
+            gsutil rm gs://resume-screening-ml-terraform-bucket/gcp-gke/default.tfstate 2>/dev/null || true
+            terraform init -reconfigure
+          fi
           terraform apply -auto-approve
       - name: Configure kubectl for GKE
         working-directory: terraform/gcp-gke
@@ -221,7 +224,7 @@ jobs:
           echo "Waiting for LoadBalancer IP..."
           for i in {1..30}; do
             EXTERNAL_IP=$(kubectl get svc ml-api-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-            if [ -n "$EXTERNAL_IP"; then
+            if [ -n "$EXTERNAL_IP" ]; then
               echo "LoadBalancer IP: $EXTERNAL_IP"
               break
             fi
@@ -408,7 +411,7 @@ jobs:
           echo "Waiting for LoadBalancer IP..."
           for i in {1..30}; do
             EXTERNAL_IP=$(kubectl get svc ml-api-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-            if [ -n "$EXTERNAL_IP"; then
+            if [ -n "$EXTERNAL_IP" ]; then
               echo "LoadBalancer IP: $EXTERNAL_IP"
               break
             fi
