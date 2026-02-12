@@ -36,7 +36,7 @@ variable "cpu_cores" {
 variable "memory_size" {
   description = "Memory size for the container"
   type        = string
-  default     = "8Gi"  # 8GB to match VM/K8s deployments
+  default     = "4Gi"  # Max for 2 CPU on Consumption plan (valid combos end at 2.0/4.0Gi)
 }
 
 variable "min_replicas" {
