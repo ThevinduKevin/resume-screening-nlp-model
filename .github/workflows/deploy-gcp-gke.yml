@@ -53,12 +53,16 @@ jobs:
         run: |
           terraform init
           gsutil rm gs://resume-screening-ml-terraform-bucket/gcp-gke/default.tflock 2>/dev/null || true
+          # Handle existing Artifact Registry repo (may exist from another workflow)
+          terraform import google_artifact_registry_repository.ml_repo projects/$TF_VAR_project_id/locations/asia-south1/repositories/ml-resume-repo 2>/dev/null || true
           if ! terraform plan -detailed-exitcode 2>/dev/null; then
             echo "State mismatch detected, cleaning up..."
             gcloud container clusters delete ml-benchmark-gke --zone $(terraform output -raw zone 2>/dev/null || echo "asia-south1-a") --project ${{ secrets.GCP_PROJECT_ID }} --quiet 2>/dev/null || true
             gcloud compute firewall-rules delete allow-lb-traffic --project ${{ secrets.GCP_PROJECT_ID }} --quiet 2>/dev/null || true
             gcloud compute networks subnets delete gke-subnet --region asia-south1 --project ${{ secrets.GCP_PROJECT_ID }} --quiet 2>/dev/null || true
             gcloud compute networks delete gke-vpc --project ${{ secrets.GCP_PROJECT_ID }} --quiet 2>/dev/null || true
+            # Also clean up Artifact Registry if state is being reset
+            gcloud artifacts repositories delete ml-resume-repo --location=asia-south1 --project=$TF_VAR_project_id --quiet 2>/dev/null || true
             gsutil rm gs://resume-screening-ml-terraform-bucket/gcp-gke/default.tfstate 2>/dev/null || true
             terraform init -reconfigure
           fi
