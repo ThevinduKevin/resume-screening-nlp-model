@@ -17,21 +17,6 @@ provider "google" {
   region  = var.region
 }
 
-# Enable required APIs
-resource "google_project_service" "artifactregistry" {
-  service            = "artifactregistry.googleapis.com"
-  disable_on_destroy = false
-}
-
-# Artifact Registry for container images
-resource "google_artifact_registry_repository" "ml_repo" {
-  location      = var.region
-  repository_id = "ml-gke-repo"
-  format        = "DOCKER"
-
-  depends_on = [google_project_service.artifactregistry]
-}
-
 # NOTE: Enable these APIs manually in GCP Console before running:
 # - container.googleapis.com (Kubernetes Engine API)
 # - compute.googleapis.com (Compute Engine API)
