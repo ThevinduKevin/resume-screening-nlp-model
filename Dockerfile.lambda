@@ -10,10 +10,20 @@ RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements.txt
 # Install mangum for FastAPI/Lambda integration
 RUN pip install --no-cache-dir mangum
 
+# Install AWS CLI for downloading model from S3
+RUN yum install -y unzip && \
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+    unzip awscliv2.zip && ./aws/install && \
+    rm -rf awscliv2.zip aws && \
+    yum clean all
+
 # Copy application code and model files
 COPY app.py ${LAMBDA_TASK_ROOT}/
 COPY lambda_handler.py ${LAMBDA_TASK_ROOT}/
-COPY clf.pkl tfidf.pkl encoder.pkl ${LAMBDA_TASK_ROOT}/
+COPY tfidf.pkl encoder.pkl ${LAMBDA_TASK_ROOT}/
+
+# Download large model file from S3 (public bucket)
+RUN aws s3 cp s3://resume-screening-ml-models-thevindu/clf.pkl ${LAMBDA_TASK_ROOT}/clf.pkl --no-sign-request --region ap-south-1
 
 # Set the handler
 CMD ["lambda_handler.handler"]
