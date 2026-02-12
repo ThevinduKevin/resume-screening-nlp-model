@@ -154,7 +154,7 @@ jobs:
           mkdir -p $RESULTS_DIR
           kubectl top pods > $RESULTS_DIR/k8s_pod_metrics.txt 2>/dev/null || echo "Metrics not available" > $RESULTS_DIR/k8s_pod_metrics.txt
           kubectl get pods -o wide > $RESULTS_DIR/k8s_pods.txt
-          kubectl describe deployment ml-api > $RESULTS_DIR/k8s_deployment.txt
+          kubectl describe deployment ml-api > $RESULTS_DIR/k8s_deployment.txt 2>/dev/null || echo "Deployment not found" > $RESULTS_DIR/k8s_deployment.txt
 
       - name: Upload results to Google Sheets
         if: success()
