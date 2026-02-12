@@ -57,6 +57,27 @@ resource "aws_cloudwatch_log_group" "lambda_logs" {
   retention_in_days = 7
 }
 
+# Grant CloudWatch Logs tag permissions to the Terraform user
+# Required by AWS provider v5.x for state refresh operations
+resource "aws_iam_user_policy" "terraform_cloudwatch_tags" {
+  name = "cloudwatch-logs-tag-permissions"
+  user = "github-terraform-user"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:ListTagsForResource",
+          "logs:ListTagsLogGroup"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 # Lambda Function (placeholder - will be deployed after image push)
 resource "aws_lambda_function" "ml_api" {
   function_name = var.function_name
