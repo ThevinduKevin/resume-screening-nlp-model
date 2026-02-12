@@ -1,7 +1,7 @@
 terraform {
   backend "gcs" {
     bucket = "resume-screening-ml-terraform-bucket"
-    prefix = "aws-lambda"
+    prefix = "aws-lambda-v2"
   }
 
   required_providers {
