@@ -18,6 +18,8 @@ jobs:
         with:
           ref: ${{ github.ref }}
           lfs: false
+        env:
+          GIT_LFS_SKIP_SMUDGE: '1'
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3

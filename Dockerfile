@@ -12,12 +12,13 @@ RUN apt-get update && apt-get install -y curl unzip && \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy your existing model files + API code
+# Copy API code
 COPY app.py .
-COPY tfidf.pkl encoder.pkl ./
 
-# Download large model file from S3 (public bucket)
-RUN aws s3 cp s3://resume-screening-ml-models-thevindu/clf.pkl clf.pkl --no-sign-request --region ap-south-1
+# Download all model files from S3 (public bucket)
+RUN aws s3 cp s3://resume-screening-ml-models-thevindu/clf.pkl clf.pkl --no-sign-request --region ap-south-1 && \
+    aws s3 cp s3://resume-screening-ml-models-thevindu/tfidf.pkl tfidf.pkl --no-sign-request --region ap-south-1 && \
+    aws s3 cp s3://resume-screening-ml-models-thevindu/encoder.pkl encoder.pkl --no-sign-request --region ap-south-1
 
 EXPOSE 8000
 

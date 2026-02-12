@@ -17,13 +17,14 @@ RUN yum install -y unzip && \
     rm -rf awscliv2.zip aws && \
     yum clean all
 
-# Copy application code and model files
+# Copy application code
 COPY app.py ${LAMBDA_TASK_ROOT}/
 COPY lambda_handler.py ${LAMBDA_TASK_ROOT}/
-COPY tfidf.pkl encoder.pkl ${LAMBDA_TASK_ROOT}/
 
-# Download large model file from S3 (public bucket)
-RUN aws s3 cp s3://resume-screening-ml-models-thevindu/clf.pkl ${LAMBDA_TASK_ROOT}/clf.pkl --no-sign-request --region ap-south-1
+# Download all model files from S3 (public bucket)
+RUN aws s3 cp s3://resume-screening-ml-models-thevindu/clf.pkl ${LAMBDA_TASK_ROOT}/clf.pkl --no-sign-request --region ap-south-1 && \
+    aws s3 cp s3://resume-screening-ml-models-thevindu/tfidf.pkl ${LAMBDA_TASK_ROOT}/tfidf.pkl --no-sign-request --region ap-south-1 && \
+    aws s3 cp s3://resume-screening-ml-models-thevindu/encoder.pkl ${LAMBDA_TASK_ROOT}/encoder.pkl --no-sign-request --region ap-south-1
 
 # Set the handler
 CMD ["lambda_handler.handler"]
