@@ -83,7 +83,6 @@ resource "azurerm_container_app" "ml_api" {
         path             = "/health"
         port             = 8000
         transport        = "HTTP"
-        initial_delay    = 30
         interval_seconds = 30
         timeout          = 5
       }
@@ -92,7 +91,6 @@ resource "azurerm_container_app" "ml_api" {
         path             = "/health"
         port             = 8000
         transport        = "HTTP"
-        initial_delay    = 10
         interval_seconds = 10
         timeout          = 5
       }
@@ -101,7 +99,6 @@ resource "azurerm_container_app" "ml_api" {
         path             = "/health"
         port             = 8000
         transport        = "HTTP"
-        initial_delay    = 10
         interval_seconds = 10
         timeout          = 5
         failure_count_threshold = 30
