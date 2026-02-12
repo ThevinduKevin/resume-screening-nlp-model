@@ -101,7 +101,7 @@ resource "azurerm_container_app" "ml_api" {
         transport        = "HTTP"
         interval_seconds = 10
         timeout          = 5
-        failure_count_threshold = 30
+        failure_count_threshold = 10
       }
     }
 
