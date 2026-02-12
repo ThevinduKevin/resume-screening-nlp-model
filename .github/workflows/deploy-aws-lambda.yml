@@ -41,7 +41,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
 
-      - name: Deploy Lambda Infrastructure (Phase 1 - ECR only)
+      - name: Deploy Lambda Infrastructure (Phase 1 - ECR & IAM Policy)
         working-directory: terraform/aws-lambda
         run: |
           terraform init
@@ -51,8 +51,12 @@ jobs:
           aws logs delete-log-group --log-group-name /aws/api-gateway/ml-resume-api 2>/dev/null || true
           terraform state rm aws_cloudwatch_log_group.lambda_logs 2>/dev/null || true
           terraform state rm aws_cloudwatch_log_group.api_gw_logs 2>/dev/null || true
-          # First create just the ECR repository
-          terraform apply -auto-approve -target=aws_ecr_repository.lambda_repo
+          # Create IAM policy first (skip refresh to avoid ListTagsForResource error on any remaining state)
+          terraform apply -auto-approve -refresh=false \
+            -target=aws_iam_user_policy.terraform_cloudwatch_tags \
+            -target=aws_ecr_repository.lambda_repo
+          # Brief pause for IAM policy to propagate
+          sleep 10
 
       - name: Login to Amazon ECR
         id: login-ecr
