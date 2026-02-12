@@ -46,6 +46,11 @@ jobs:
         run: |
           terraform init
           gsutil rm gs://resume-screening-ml-terraform-bucket/aws-lambda/default.tflock 2>/dev/null || true
+          # Clean up stale CloudWatch log groups to avoid ListTagsForResource permission issue
+          aws logs delete-log-group --log-group-name /aws/lambda/ml-resume-api 2>/dev/null || true
+          aws logs delete-log-group --log-group-name /aws/api-gateway/ml-resume-api 2>/dev/null || true
+          terraform state rm aws_cloudwatch_log_group.lambda_logs 2>/dev/null || true
+          terraform state rm aws_cloudwatch_log_group.api_gw_logs 2>/dev/null || true
           # First create just the ECR repository
           terraform apply -auto-approve -target=aws_ecr_repository.lambda_repo
 

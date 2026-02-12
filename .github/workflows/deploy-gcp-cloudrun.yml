@@ -44,6 +44,8 @@ jobs:
         run: |
           terraform init
           gsutil rm gs://resume-screening-ml-terraform-bucket/gcp-cloudrun/default.tflock 2>/dev/null || true
+          # Import existing Artifact Registry repo if it exists but isn't in state
+          terraform import google_artifact_registry_repository.ml_repo projects/$TF_VAR_project_id/locations/asia-south1/repositories/ml-resume-repo 2>/dev/null || true
           # First create just the Artifact Registry
           terraform apply -auto-approve \
             -target=google_project_service.artifactregistry \
