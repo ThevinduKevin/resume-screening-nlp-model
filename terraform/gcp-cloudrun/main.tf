@@ -31,7 +31,7 @@ resource "google_project_service" "artifactregistry" {
 # Artifact Registry for container images
 resource "google_artifact_registry_repository" "ml_repo" {
   location      = var.region
-  repository_id = "ml-resume-repo"
+  repository_id = "ml-resume-cloudrun-repo"
   format        = "DOCKER"
 
   depends_on = [google_project_service.artifactregistry]

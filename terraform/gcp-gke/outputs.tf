@@ -25,5 +25,5 @@ output "project_id" {
 
 output "artifact_registry_url" {
   description = "Artifact Registry URL"
-  value       = "${var.region}-docker.pkg.dev/${var.project_id}/ml-resume-repo"
+  value       = "${var.region}-docker.pkg.dev/${var.project_id}/ml-resume-gke-repo"
 }

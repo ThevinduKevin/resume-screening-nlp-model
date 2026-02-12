@@ -104,7 +104,7 @@ resource "google_container_node_pool" "primary_nodes" {
 # Artifact Registry Repository for Docker images
 resource "google_artifact_registry_repository" "ml_repo" {
   location      = var.region
-  repository_id = "ml-resume-repo"
+  repository_id = "ml-resume-gke-repo"
   description   = "Docker repository for ML resume screening API"
   format        = "DOCKER"
 

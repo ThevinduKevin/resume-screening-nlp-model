@@ -14,7 +14,17 @@ terraform {
 
 provider "azurerm" {
   features {}
-  subscription_id = var.subscription_id
+  subscription_id                 = var.subscription_id
+  skip_provider_registration      = true
+}
+
+# Register required resource providers
+resource "azurerm_resource_provider_registration" "microsoft_app" {
+  name = "Microsoft.App"
+}
+
+resource "azurerm_resource_provider_registration" "microsoft_operational_insights" {
+  name = "Microsoft.OperationalInsights"
 }
 
 # Resource Group
@@ -47,6 +57,8 @@ resource "azurerm_container_app_environment" "env" {
   resource_group_name        = azurerm_resource_group.rg.name
   location                   = azurerm_resource_group.rg.location
   log_analytics_workspace_id = azurerm_log_analytics_workspace.logs.id
+
+  depends_on = [azurerm_resource_provider_registration.microsoft_app]
 }
 
 # Container App
