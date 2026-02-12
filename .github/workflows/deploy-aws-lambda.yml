@@ -50,8 +50,8 @@ jobs:
           terraform state rm aws_cloudwatch_log_group.lambda_logs 2>/dev/null || true
           terraform state rm aws_cloudwatch_log_group.api_gw_logs 2>/dev/null || true
           terraform state rm aws_iam_user_policy.terraform_cloudwatch_tags 2>/dev/null || true
-          # First create just the ECR repository
-          terraform apply -auto-approve -target=aws_ecr_repository.lambda_repo
+          # First create just the ECR repository (skip refresh to avoid stale CloudWatch state errors)
+          terraform apply -auto-approve -refresh=false -target=aws_ecr_repository.lambda_repo
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -70,7 +70,7 @@ jobs:
       - name: Deploy Lambda Infrastructure (Phase 2 - Full)
         working-directory: terraform/aws-lambda
         run: |
-          terraform apply -auto-approve
+          terraform apply -auto-approve -refresh=false
           echo "API_URL=$(terraform output -raw api_gateway_url)" >> $GITHUB_ENV
           echo "FUNCTION_URL=$(terraform output -raw function_url)" >> $GITHUB_ENV
 

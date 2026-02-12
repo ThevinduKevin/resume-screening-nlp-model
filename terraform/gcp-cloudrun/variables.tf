@@ -36,5 +36,5 @@ variable "min_instances" {
 variable "max_instances" {
   description = "Maximum number of instances"
   type        = number
-  default     = 10
+  default     = 5  # Limited by asia-south1 memory quota (5 × 8Gi = 40Gi max)
 }
