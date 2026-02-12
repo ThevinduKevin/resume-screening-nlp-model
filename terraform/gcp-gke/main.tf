@@ -1,7 +1,7 @@
 terraform {
   backend "gcs" {
     bucket = "resume-screening-ml-terraform-bucket"
-    prefix = "gcp-gke"
+    prefix = "gcp-gke-v2"
   }
 
   required_providers {

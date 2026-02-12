@@ -17,6 +17,13 @@ provider "aws" {
 }
 
 # ECR Repository for Lambda container
+# Clean up any pre-existing ECR repo (fresh state won't know about it)
+resource "terraform_data" "cleanup_ecr" {
+  provisioner "local-exec" {
+    command = "aws ecr delete-repository --repository-name ml-resume-lambda --force 2>/dev/null || true"
+  }
+}
+
 resource "aws_ecr_repository" "lambda_repo" {
   name                 = "ml-resume-lambda"
   image_tag_mutability = "MUTABLE"
@@ -25,6 +32,8 @@ resource "aws_ecr_repository" "lambda_repo" {
   image_scanning_configuration {
     scan_on_push = false
   }
+
+  depends_on = [terraform_data.cleanup_ecr]
 }
 
 # IAM Role for Lambda
