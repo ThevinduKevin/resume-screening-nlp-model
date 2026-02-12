@@ -51,33 +51,6 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   role       = aws_iam_role.lambda_role.name
 }
 
-# CloudWatch Log Group
-resource "aws_cloudwatch_log_group" "lambda_logs" {
-  name              = "/aws/lambda/${var.function_name}"
-  retention_in_days = 7
-}
-
-# Grant CloudWatch Logs tag permissions to the Terraform user
-# Required by AWS provider v5.x for state refresh operations
-resource "aws_iam_user_policy" "terraform_cloudwatch_tags" {
-  name = "cloudwatch-logs-tag-permissions"
-  user = "github-terraform-user"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:ListTagsForResource",
-          "logs:ListTagsLogGroup"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
-}
-
 # Lambda Function (placeholder - will be deployed after image push)
 resource "aws_lambda_function" "ml_api" {
   function_name = var.function_name
@@ -94,7 +67,6 @@ resource "aws_lambda_function" "ml_api" {
   }
 
   depends_on = [
-    aws_cloudwatch_log_group.lambda_logs,
     aws_iam_role_policy_attachment.lambda_basic
   ]
 
@@ -150,25 +122,6 @@ resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.lambda_api.id
   name        = "$default"
   auto_deploy = true
-
-  access_log_settings {
-    destination_arn = aws_cloudwatch_log_group.api_gw_logs.arn
-    format = jsonencode({
-      requestId      = "$context.requestId"
-      ip             = "$context.identity.sourceIp"
-      requestTime    = "$context.requestTime"
-      httpMethod     = "$context.httpMethod"
-      routeKey       = "$context.routeKey"
-      status         = "$context.status"
-      responseLength = "$context.responseLength"
-      latency        = "$context.integrationLatency"
-    })
-  }
-}
-
-resource "aws_cloudwatch_log_group" "api_gw_logs" {
-  name              = "/aws/api-gateway/ml-resume-api"
-  retention_in_days = 7
 }
 
 resource "aws_lambda_permission" "api_gw" {
