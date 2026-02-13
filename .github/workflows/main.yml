@@ -1018,7 +1018,7 @@ jobs:
         working-directory: terraform/aws-lambda
         run: |
           terraform apply -auto-approve
-          echo "API_URL=$(terraform output -raw api_gateway_url)" >> $GITHUB_ENV
+          echo "API_URL=$(terraform output -raw function_url)" >> $GITHUB_ENV
       - name: Update Lambda with new image
         working-directory: terraform/aws-lambda
         run: |
