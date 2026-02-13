@@ -105,18 +105,35 @@ jobs:
             --function-url-auth-type NONE
           echo "Public access permission granted"
 
+      - name: Debug Lambda Function State
+        working-directory: terraform/aws-lambda
+        run: |
+          FUNCTION_NAME=$(terraform output -raw function_name)
+          echo "=== Lambda Function Configuration ==="
+          aws lambda get-function-configuration --function-name $FUNCTION_NAME --query '{State:State,LastUpdateStatus:LastUpdateStatus,StateReason:StateReasonCode,Timeout:Timeout,MemorySize:MemorySize}' --output table
+          echo ""
+          echo "=== Function URL Configuration ==="
+          aws lambda get-function-url-config --function-name $FUNCTION_NAME --query '{AuthType:AuthType,Cors:Cors}' --output table 2>/dev/null || echo "No function URL config found"
+          echo ""
+          echo "=== Resource Policy ==="
+          aws lambda get-policy --function-name $FUNCTION_NAME --query 'Policy' --output text 2>/dev/null | python3 -m json.tool || echo "No resource policy found"
+
       - name: Wait for API to be ready
         run: |
           echo "Waiting for Lambda API to be ready at $FUNCTION_URL..."
           for i in {1..30}; do
-            if curl -sf "${FUNCTION_URL}health" > /dev/null 2>&1; then
+            HTTP_CODE=$(curl -s -o /tmp/response.txt -w "%{http_code}" "${FUNCTION_URL}health" 2>/dev/null || echo "000")
+            if [ "$HTTP_CODE" = "200" ]; then
               echo "API is ready!"
+              cat /tmp/response.txt
               break
             fi
-            echo "Attempt $i/30: API not ready, waiting 10s..."
+            echo "Attempt $i/30: HTTP $HTTP_CODE, waiting 10s..."
+            cat /tmp/response.txt 2>/dev/null || true
+            echo ""
             sleep 10
           done
-          curl -f "${FUNCTION_URL}health"
+          curl -v "${FUNCTION_URL}health" 2>&1 || true
           echo "TARGET_HOST=$FUNCTION_URL" >> $GITHUB_ENV
 
       - name: Measure cold starts
