@@ -16,6 +16,26 @@ provider "aws" {
   region = var.region
 }
 
+# Grant Lambda permissions to the Terraform user (needed for creating/managing Lambda resources)
+resource "aws_iam_user_policy" "terraform_lambda_permissions" {
+  name = "lambda-management-permissions"
+  user = "github-terraform-user"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "lambda:*",
+          "iam:PassRole"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 # ECR Repository for Lambda container
 # Clean up any pre-existing ECR repo (fresh state won't know about it)
 resource "terraform_data" "cleanup_ecr" {
@@ -88,7 +108,8 @@ resource "aws_lambda_function" "ml_api" {
   }
 
   depends_on = [
-    aws_iam_role_policy_attachment.lambda_basic
+    aws_iam_role_policy_attachment.lambda_basic,
+    aws_iam_user_policy.terraform_lambda_permissions
   ]
 
   lifecycle {
