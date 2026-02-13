@@ -12,9 +12,19 @@ import logging
 app = FastAPI(title="Resume Screening API", version="1.0")
 
 # Load your existing models (same as Streamlit)
-svc_model = pickle.load(open('clf.pkl', 'rb'))
-tfidf = pickle.load(open('tfidf.pkl', 'rb'))
-le = pickle.load(open('encoder.pkl', 'rb'))
+svc_model = None
+tfidf = None
+le = None
+model_load_error = None
+
+try:
+    svc_model = pickle.load(open('clf.pkl', 'rb'))
+    tfidf = pickle.load(open('tfidf.pkl', 'rb'))
+    le = pickle.load(open('encoder.pkl', 'rb'))
+    print("Models loaded successfully")
+except Exception as e:
+    model_load_error = str(e)
+    print(f"CRITICAL ERROR: Failed to load models: {e}")
 
 # YOUR EXISTING FUNCTIONS (unchanged)
 def cleanResume(txt):
@@ -80,6 +90,9 @@ async def predict_resume(file: UploadFile = File(...)):
         # Extract text from uploaded file
         resume_text = handle_file_upload(file)
         
+        if model_load_error:
+            raise HTTPException(status_code=500, detail=f"Model not loaded: {model_load_error}")
+        
         # Predict category (your exact logic)
         category = pred(resume_text)
         processing_time = (time.time() - start_time) * 1000
@@ -98,6 +111,9 @@ async def predict_resume_text(resume_text: str):
     start_time = time.time()
     
     try:
+        if model_load_error:
+            raise HTTPException(status_code=500, detail=f"Model not loaded: {model_load_error}")
+
         category = pred(resume_text)
         processing_time = (time.time() - start_time) * 1000
         
@@ -111,6 +127,8 @@ async def predict_resume_text(resume_text: str):
 
 @app.get("/health")
 async def health_check():
+    if model_load_error:
+        return {"status": "unhealthy", "error": model_load_error}
     return {"status": "healthy", "model": "loaded"}
 
 if __name__ == "__main__":
