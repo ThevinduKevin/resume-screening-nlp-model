@@ -138,3 +138,12 @@ resource "aws_lambda_function_url" "ml_api_url" {
     allow_headers = ["*"]
   }
 }
+
+# Allow public access to the Lambda Function URL
+resource "aws_lambda_permission" "function_url_public" {
+  statement_id           = "FunctionURLAllowPublicAccess"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.ml_api.function_name
+  principal              = "*"
+  function_url_auth_type = "NONE"
+}
