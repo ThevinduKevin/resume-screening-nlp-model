@@ -75,8 +75,9 @@ jobs:
         working-directory: terraform/aws-lambda
         run: |
           terraform apply -auto-approve -refresh=false
-          echo "API_URL=$(terraform output -raw api_gateway_url)" >> $GITHUB_ENV
-          echo "FUNCTION_URL=$(terraform output -raw function_url)" >> $GITHUB_ENV
+          FUNCTION_URL=$(terraform output -raw function_url)
+          echo "FUNCTION_URL=$FUNCTION_URL" >> $GITHUB_ENV
+          echo "API_URL=$FUNCTION_URL" >> $GITHUB_ENV
 
       - name: Update Lambda with new image
         working-directory: terraform/aws-lambda
@@ -92,17 +93,17 @@ jobs:
 
       - name: Wait for API to be ready
         run: |
-          echo "Waiting for Lambda API to be ready at $API_URL..."
+          echo "Waiting for Lambda API to be ready at $FUNCTION_URL..."
           for i in {1..30}; do
-            if curl -sf "$API_URL/health" > /dev/null 2>&1; then
+            if curl -sf "${FUNCTION_URL}health" > /dev/null 2>&1; then
               echo "API is ready!"
               break
             fi
             echo "Attempt $i/30: API not ready, waiting 10s..."
             sleep 10
           done
-          curl -f "$API_URL/health"
-          echo "TARGET_HOST=$API_URL" >> $GITHUB_ENV
+          curl -f "${FUNCTION_URL}health"
+          echo "TARGET_HOST=$FUNCTION_URL" >> $GITHUB_ENV
 
       - name: Measure cold starts
         env:
@@ -114,7 +115,7 @@ jobs:
           source test-env/bin/activate
           pip install requests
           # Measure cold starts (3 tests with 90 second wait between)
-          python scripts/measure_cold_starts.py "$API_URL" "$RESULTS_DIR/cold_start_metrics.csv" 3 90
+          python scripts/measure_cold_starts.py "$FUNCTION_URL" "$RESULTS_DIR/cold_start_metrics.csv" 3 90
 
       - name: Run Locust tests
         env:
@@ -127,8 +128,8 @@ jobs:
           pip install --upgrade pip
           pip install locust psutil zope-event
           python scripts/collect_metrics.py &
-          # Use API Gateway URL (without trailing slash issues)
-          export TARGET_IP=$(echo "$API_URL" | sed 's|https://||' | sed 's|http://||')
+          # Use Lambda Function URL
+          export TARGET_IP=$(echo "$FUNCTION_URL" | sed 's|https://||' | sed 's|http://||' | sed 's|/$||')
           export TARGET_PROTOCOL="https"
           bash scripts/run_locust.sh
           mv results/locust_*.csv $RESULTS_DIR/ || true
@@ -184,7 +185,7 @@ jobs:
         if: always()
         working-directory: terraform/aws-lambda
         run: |
-          gsutil rm gs://resume-screening-ml-terraform-bucket/aws-lambda/default.tflock 2>/dev/null || true
+          gsutil rm gs://resume-screening-ml-terraform-bucket/aws-lambda-v2/default.tflock 2>/dev/null || true
           terraform destroy -auto-approve
 
       - name: Upload AWS Lambda results

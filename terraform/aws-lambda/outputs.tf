@@ -13,10 +13,7 @@ output "function_url" {
   value       = aws_lambda_function_url.ml_api_url.function_url
 }
 
-output "api_gateway_url" {
-  description = "API Gateway URL"
-  value       = aws_apigatewayv2_api.lambda_api.api_endpoint
-}
+
 
 output "region" {
   description = "AWS region"
