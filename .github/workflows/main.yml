@@ -1026,6 +1026,18 @@ jobs:
           ECR_REPO=$(terraform output -raw ecr_repository_url)
           aws lambda update-function-code --function-name $FUNCTION_NAME --image-uri $ECR_REPO:$DOCKER_TAG
           aws lambda wait function-updated --function-name $FUNCTION_NAME
+      - name: Ensure Lambda Function URL is publicly accessible
+        working-directory: terraform/aws-lambda
+        run: |
+          FUNCTION_NAME=$(terraform output -raw function_name)
+          aws lambda remove-permission --function-name $FUNCTION_NAME --statement-id FunctionURLAllowPublicAccess 2>/dev/null || true
+          aws lambda add-permission \
+            --function-name $FUNCTION_NAME \
+            --statement-id FunctionURLAllowPublicAccess \
+            --action lambda:InvokeFunctionUrl \
+            --principal "*" \
+            --function-url-auth-type NONE
+          echo "Public access permission granted"
       - name: Wait for API to be ready
         run: |
           for i in {1..30}; do

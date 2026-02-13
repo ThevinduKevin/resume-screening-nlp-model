@@ -91,6 +91,20 @@ jobs:
           aws lambda wait function-updated --function-name $FUNCTION_NAME
           echo "Lambda function updated successfully"
 
+      - name: Ensure Lambda Function URL is publicly accessible
+        working-directory: terraform/aws-lambda
+        run: |
+          FUNCTION_NAME=$(terraform output -raw function_name)
+          # Remove existing permission if any, then re-add to ensure it's correct
+          aws lambda remove-permission --function-name $FUNCTION_NAME --statement-id FunctionURLAllowPublicAccess 2>/dev/null || true
+          aws lambda add-permission \
+            --function-name $FUNCTION_NAME \
+            --statement-id FunctionURLAllowPublicAccess \
+            --action lambda:InvokeFunctionUrl \
+            --principal "*" \
+            --function-url-auth-type NONE
+          echo "Public access permission granted"
+
       - name: Wait for API to be ready
         run: |
           echo "Waiting for Lambda API to be ready at $FUNCTION_URL..."
