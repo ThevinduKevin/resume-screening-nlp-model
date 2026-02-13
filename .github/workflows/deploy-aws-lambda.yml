@@ -67,7 +67,7 @@ jobs:
           ECR_REPO=$(terraform output -raw ecr_repository_url)
           cd ../..
           # Build Lambda-specific image
-          docker build -f Dockerfile.lambda -t $ECR_REPO:$DOCKER_TAG .
+          docker build --provenance=false -f Dockerfile.lambda -t $ECR_REPO:$DOCKER_TAG .
           docker push $ECR_REPO:$DOCKER_TAG
           echo "IMAGE_URL=$ECR_REPO:$DOCKER_TAG" >> $GITHUB_ENV
 
