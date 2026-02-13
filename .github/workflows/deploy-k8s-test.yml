@@ -360,13 +360,12 @@ jobs:
         run: |
           terraform init
           gsutil rm gs://resume-screening-ml-terraform-bucket/azure-aks/default.tflock 2>/dev/null || true
-          gsutil rm gs://resume-screening-ml-terraform-bucket/azure-aks/default.tfstate 2>/dev/null || true
           terraform init -reconfigure
-          # Import resource group if it still exists (deletion may be slow)
-          if az group exists --name ml-benchmark-rg | grep -q true; then
-            echo "Resource group still exists, importing into Terraform state..."
+          # Always try to import resource group if it exists
+          if az group exists --name ml-benchmark-rg 2>/dev/null | grep -qi true; then
+            echo "Resource group exists, importing into Terraform state..."
             SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-            terraform import azurerm_resource_group.main /subscriptions/$SUBSCRIPTION_ID/resourceGroups/ml-benchmark-rg || true
+            terraform import azurerm_resource_group.main /subscriptions/$SUBSCRIPTION_ID/resourceGroups/ml-benchmark-rg 2>&1 || echo "Import failed or already in state, continuing..."
           fi
           terraform apply -auto-approve
       - name: Configure kubectl for AKS
