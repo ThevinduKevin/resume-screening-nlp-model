@@ -78,7 +78,11 @@ jobs:
             SUBSCRIPTION_ID=$(az account show --query id -o tsv)
             terraform import azurerm_resource_group.main /subscriptions/$SUBSCRIPTION_ID/resourceGroups/ml-benchmark-rg 2>&1 || echo "Import failed or already in state, continuing..."
           fi
-          terraform apply -auto-approve
+          terraform apply -auto-approve || {
+            echo "Terraform apply failed, retrying in 30s..."
+            sleep 30
+            terraform apply -auto-approve
+          }
 
       - name: Configure kubectl for AKS
         working-directory: terraform/azure-aks
@@ -208,6 +212,8 @@ jobs:
         run: |
           kubectl delete -f ../../k8s/service.yaml --ignore-not-found || true
           kubectl delete -f ../../k8s/deployment.yaml --ignore-not-found || true
+          # Clean up VNet first to prevent resource group deletion failures
+          az network vnet delete --name aks-vnet --resource-group ml-benchmark-rg 2>/dev/null || true
           gsutil rm gs://resume-screening-ml-terraform-bucket/azure-aks/default.tflock 2>/dev/null || true
           terraform destroy -auto-approve || true
           az group delete --name ml-benchmark-rg --yes --no-wait || true
