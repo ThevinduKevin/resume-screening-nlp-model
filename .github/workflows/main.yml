@@ -665,6 +665,12 @@ jobs:
           gsutil rm gs://resume-screening-ml-terraform-bucket/azure-aks/default.tflock 2>/dev/null || true
           gsutil rm gs://resume-screening-ml-terraform-bucket/azure-aks/default.tfstate 2>/dev/null || true
           terraform init -reconfigure
+          # Import resource group if it still exists (deletion may be slow)
+          if az group exists --name ml-benchmark-rg | grep -q true; then
+            echo "Resource group still exists, importing into Terraform state..."
+            SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+            terraform import azurerm_resource_group.main /subscriptions/$SUBSCRIPTION_ID/resourceGroups/ml-benchmark-rg || true
+          fi
           terraform apply -auto-approve
       - name: Configure kubectl for AKS
         working-directory: terraform/azure-aks
@@ -854,14 +860,17 @@ jobs:
         working-directory: terraform/gcp-gke
         run: |
           gcloud container clusters get-credentials $(terraform output -raw cluster_name) --zone $(terraform output -raw zone) --project ${{ secrets.GCP_PROJECT_ID }}
-      - name: Configure Docker for GCR
+      - name: Configure Docker for Artifact Registry
         run: |
-          gcloud auth configure-docker gcr.io --quiet
-      - name: Build and Push Docker Image to GCR
+          gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
+      - name: Build and Push Docker Image to Artifact Registry
+        working-directory: terraform/gcp-gke
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
-          IMAGE_URL="gcr.io/$PROJECT_ID/$DOCKER_IMAGE:$DOCKER_TAG"
+          ARTIFACT_REGISTRY_URL="asia-south1-docker.pkg.dev/$PROJECT_ID/ml-resume-gke-repo"
+          cd ../..
+          IMAGE_URL="$ARTIFACT_REGISTRY_URL/$DOCKER_IMAGE:$DOCKER_TAG"
           docker build -t $IMAGE_URL .
           docker push $IMAGE_URL
           echo "IMAGE_URL=$IMAGE_URL" >> $GITHUB_ENV
@@ -1002,7 +1011,7 @@ jobs:
         run: |
           ECR_REPO=$(terraform output -raw ecr_repository_url)
           cd ../..
-          docker build -f Dockerfile.lambda -t $ECR_REPO:$DOCKER_TAG .
+          docker build --provenance=false --sbom=false -f Dockerfile.lambda -t $ECR_REPO:$DOCKER_TAG .
           docker push $ECR_REPO:$DOCKER_TAG
           echo "IMAGE_URL=$ECR_REPO:$DOCKER_TAG" >> $GITHUB_ENV
       - name: Deploy Lambda Infrastructure (Phase 2)
