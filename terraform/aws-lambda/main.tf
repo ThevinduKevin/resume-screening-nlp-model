@@ -36,6 +36,16 @@ resource "aws_ecr_repository" "lambda_repo" {
   depends_on = [terraform_data.cleanup_ecr]
 }
 
+# Clean up any pre-existing IAM role (fresh state won't know about it)
+resource "terraform_data" "cleanup_iam" {
+  provisioner "local-exec" {
+    command = <<-EOT
+      aws iam detach-role-policy --role-name ml-resume-lambda-role --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole 2>/dev/null || true
+      aws iam delete-role --role-name ml-resume-lambda-role 2>/dev/null || true
+    EOT
+  }
+}
+
 # IAM Role for Lambda
 resource "aws_iam_role" "lambda_role" {
   name = "ml-resume-lambda-role"
@@ -52,6 +62,8 @@ resource "aws_iam_role" "lambda_role" {
       }
     ]
   })
+
+  depends_on = [terraform_data.cleanup_iam]
 }
 
 # IAM Policy for Lambda
@@ -94,49 +106,4 @@ resource "aws_lambda_function_url" "ml_api_url" {
     allow_methods = ["GET", "POST"]
     allow_headers = ["*"]
   }
-}
-
-# API Gateway (alternative to Function URL for more control)
-resource "aws_apigatewayv2_api" "lambda_api" {
-  name          = "ml-resume-api"
-  protocol_type = "HTTP"
-
-  cors_configuration {
-    allow_origins = ["*"]
-    allow_methods = ["GET", "POST", "OPTIONS"]
-    allow_headers = ["*"]
-  }
-}
-
-resource "aws_apigatewayv2_integration" "lambda_integration" {
-  api_id                 = aws_apigatewayv2_api.lambda_api.id
-  integration_type       = "AWS_PROXY"
-  integration_uri        = aws_lambda_function.ml_api.invoke_arn
-  payload_format_version = "2.0"
-}
-
-resource "aws_apigatewayv2_route" "health" {
-  api_id    = aws_apigatewayv2_api.lambda_api.id
-  route_key = "GET /health"
-  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
-}
-
-resource "aws_apigatewayv2_route" "predict" {
-  api_id    = aws_apigatewayv2_api.lambda_api.id
-  route_key = "POST /predict"
-  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
-}
-
-resource "aws_apigatewayv2_stage" "default" {
-  api_id      = aws_apigatewayv2_api.lambda_api.id
-  name        = "$default"
-  auto_deploy = true
-}
-
-resource "aws_lambda_permission" "api_gw" {
-  statement_id  = "AllowAPIGatewayInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.ml_api.function_name
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_apigatewayv2_api.lambda_api.execution_arn}/*/*"
 }
