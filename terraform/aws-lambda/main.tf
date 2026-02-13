@@ -9,6 +9,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.9"
+    }
   }
 }
 
@@ -34,6 +38,12 @@ resource "aws_iam_user_policy" "terraform_lambda_permissions" {
       }
     ]
   })
+}
+
+# Wait for IAM policy to propagate (AWS eventual consistency)
+resource "time_sleep" "wait_for_iam_propagation" {
+  depends_on      = [aws_iam_user_policy.terraform_lambda_permissions]
+  create_duration = "15s"
 }
 
 # ECR Repository for Lambda container
@@ -109,7 +119,7 @@ resource "aws_lambda_function" "ml_api" {
 
   depends_on = [
     aws_iam_role_policy_attachment.lambda_basic,
-    aws_iam_user_policy.terraform_lambda_permissions
+    time_sleep.wait_for_iam_propagation
   ]
 
   lifecycle {
