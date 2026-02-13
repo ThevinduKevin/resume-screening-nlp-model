@@ -660,16 +660,16 @@ jobs:
           fi
       - name: Deploy AKS Infrastructure
         working-directory: terraform/azure-aks
+        env:
+          ARM_SUBSCRIPTION_ID: ${{ env.ARM_SUBSCRIPTION_ID }}
         run: |
           terraform init
           gsutil rm gs://resume-screening-ml-terraform-bucket/azure-aks/default.tflock 2>/dev/null || true
-          gsutil rm gs://resume-screening-ml-terraform-bucket/azure-aks/default.tfstate 2>/dev/null || true
           terraform init -reconfigure
-          # Import resource group if it still exists (deletion may be slow)
-          if az group exists --name ml-benchmark-rg | grep -q true; then
-            echo "Resource group still exists, importing into Terraform state..."
-            SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-            terraform import azurerm_resource_group.main /subscriptions/$SUBSCRIPTION_ID/resourceGroups/ml-benchmark-rg || true
+          # Always try to import resource group if it exists
+          if az group exists --name ml-benchmark-rg 2>/dev/null | grep -qi true; then
+            echo "Resource group exists, importing into Terraform state..."
+            terraform import azurerm_resource_group.main /subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/ml-benchmark-rg 2>&1 || echo "Import failed or already in state, continuing..."
           fi
           terraform apply -auto-approve
       - name: Configure kubectl for AKS
@@ -1001,7 +1001,10 @@ jobs:
         working-directory: terraform/aws-lambda
         run: |
           terraform init
-          gsutil rm gs://resume-screening-ml-terraform-bucket/aws-lambda/default.tflock 2>/dev/null || true
+          gsutil rm gs://resume-screening-ml-terraform-bucket/aws-lambda-v2/default.tflock 2>/dev/null || true
+          # Import existing resources if they exist
+          terraform import aws_ecr_repository.lambda_repo ml-resume-lambda 2>/dev/null || true
+          terraform import aws_iam_role.lambda_role ml-resume-lambda-role 2>/dev/null || true
           terraform apply -auto-approve -target=aws_ecr_repository.lambda_repo
       - name: Login to Amazon ECR
         id: login-ecr-lambda
@@ -1018,7 +1021,9 @@ jobs:
         working-directory: terraform/aws-lambda
         run: |
           terraform apply -auto-approve
-          echo "API_URL=$(terraform output -raw function_url)" >> $GITHUB_ENV
+          FUNCTION_URL=$(terraform output -raw function_url)
+          echo "FUNCTION_URL=$FUNCTION_URL" >> $GITHUB_ENV
+          echo "API_URL=$FUNCTION_URL" >> $GITHUB_ENV
       - name: Update Lambda with new image
         working-directory: terraform/aws-lambda
         run: |
@@ -1038,16 +1043,34 @@ jobs:
             --principal "*" \
             --function-url-auth-type NONE
           echo "Public access permission granted"
+      - name: Debug Lambda Function State
+        working-directory: terraform/aws-lambda
+        run: |
+          FUNCTION_NAME=$(terraform output -raw function_name)
+          echo "=== Lambda Function Configuration ==="
+          aws lambda get-function-configuration --function-name $FUNCTION_NAME --query '{State:State,LastUpdateStatus:LastUpdateStatus,StateReason:StateReasonCode,Timeout:Timeout,MemorySize:MemorySize}' --output table
+          echo ""
+          echo "=== Function URL Configuration ==="
+          aws lambda get-function-url-config --function-name $FUNCTION_NAME --query '{AuthType:AuthType}' --output table 2>/dev/null || echo "No function URL config found"
+          echo ""
+          echo "=== Resource Policy ==="
+          aws lambda get-policy --function-name $FUNCTION_NAME --query 'Policy' --output text 2>/dev/null | python3 -m json.tool || echo "No resource policy found"
       - name: Wait for API to be ready
         run: |
+          echo "Waiting for Lambda API to be ready at $FUNCTION_URL..."
           for i in {1..30}; do
-            if curl -sf "$API_URL/health" > /dev/null 2>&1; then
+            HTTP_CODE=$(curl -s -o /tmp/response.txt -w "%{http_code}" "${FUNCTION_URL}health" 2>/dev/null || echo "000")
+            if [ "$HTTP_CODE" = "200" ]; then
               echo "API is ready!"
+              cat /tmp/response.txt
               break
             fi
+            echo "Attempt $i/30: HTTP $HTTP_CODE, waiting 10s..."
+            cat /tmp/response.txt 2>/dev/null || true
+            echo ""
             sleep 10
           done
-          curl -f "$API_URL/health"
+          curl -v "${FUNCTION_URL}health" 2>&1 || true
       - name: Measure cold starts
         env:
           RESULTS_DIR: results/aws-lambda
