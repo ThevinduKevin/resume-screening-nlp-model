@@ -32,6 +32,7 @@ resource "aws_iam_user_policy" "terraform_lambda_permissions" {
         Effect = "Allow"
         Action = [
           "lambda:*",
+          "apigateway:*",
           "iam:PassRole"
         ]
         Resource = "*"
