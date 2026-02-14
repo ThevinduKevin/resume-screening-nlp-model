@@ -1,0 +1,19 @@
+{
+    "version": "2.0",
+    "routeKey": "GET /ping",
+    "rawPath": "/ping",
+    "rawQueryString": "",
+    "headers": {
+        "accept": "*/*"
+    },
+    "requestContext": {
+        "http": {
+            "method": "GET",
+            "path": "/ping",
+            "protocol": "HTTP/1.1",
+            "sourceIp": "127.0.0.1",
+            "userAgent": "curl/7.64.1"
+        }
+    },
+    "isBase64Encoded": false
+}

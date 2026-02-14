@@ -13,8 +13,10 @@ class ResumeAPIUser(HttpUser):
 
     @task(4)
     def predict_text(self):
-        """Primary load test - text endpoint"""
-        self.client.post("/predict/text", params={"resume_text": random.choice(self.sample_resumes)})
+        self.client.post(
+            "/predict/text",
+            json={"resume_text": random.choice(self.sample_resumes)}
+        )
 
     @task(1)
     def health_check(self):

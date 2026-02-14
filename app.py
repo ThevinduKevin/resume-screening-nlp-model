@@ -1,5 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
+from fastapi import Query
 import pickle
 import docx
 import PyPDF2
@@ -12,9 +13,19 @@ import logging
 app = FastAPI(title="Resume Screening API", version="1.0")
 
 # Load your existing models (same as Streamlit)
-svc_model = pickle.load(open('clf.pkl', 'rb'))
-tfidf = pickle.load(open('tfidf.pkl', 'rb'))
-le = pickle.load(open('encoder.pkl', 'rb'))
+svc_model = None
+tfidf = None
+le = None
+model_load_error = None
+
+try:
+    svc_model = pickle.load(open('clf.pkl', 'rb'))
+    tfidf = pickle.load(open('tfidf.pkl', 'rb'))
+    le = pickle.load(open('encoder.pkl', 'rb'))
+    print("Models loaded successfully")
+except Exception as e:
+    model_load_error = str(e)
+    print(f"CRITICAL ERROR: Failed to load models: {e}")
 
 # YOUR EXISTING FUNCTIONS (unchanged)
 def cleanResume(txt):
@@ -80,6 +91,9 @@ async def predict_resume(file: UploadFile = File(...)):
         # Extract text from uploaded file
         resume_text = handle_file_upload(file)
         
+        if model_load_error:
+            raise HTTPException(status_code=500, detail=f"Model not loaded: {model_load_error}")
+        
         # Predict category (your exact logic)
         category = pred(resume_text)
         processing_time = (time.time() - start_time) * 1000
@@ -92,13 +106,17 @@ async def predict_resume(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
+class TextRequest(BaseModel):
+    resume_text: str
+
 @app.post("/predict/text")
-async def predict_resume_text(resume_text: str):
-    """Direct text input for testing"""
+async def predict_resume_text(request: TextRequest):
     start_time = time.time()
-    
     try:
-        category = pred(resume_text)
+        if model_load_error:
+            raise HTTPException(status_code=500, detail=f"Model not loaded: {model_load_error}")
+
+        category = pred(request.resume_text)
         processing_time = (time.time() - start_time) * 1000
         
         return {
@@ -111,7 +129,13 @@ async def predict_resume_text(resume_text: str):
 
 @app.get("/health")
 async def health_check():
+    if model_load_error:
+        return {"status": "unhealthy", "error": model_load_error}
     return {"status": "healthy", "model": "loaded"}
+
+@app.get("/ping")
+async def ping():
+    return {"status": "pong", "runtime": "aws-lambda"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
