@@ -1,0 +1,1 @@
+{"statusCode": 200, "body": "{\"status\":\"pong\",\"runtime\":\"aws-lambda\"}", "headers": {"content-length": "40", "content-type": "application/json"}, "isBase64Encoded": false}
