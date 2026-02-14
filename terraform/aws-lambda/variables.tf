@@ -1,7 +1,7 @@
 variable "region" {
   description = "AWS region"
   type        = string
-  default     = "ap-south-1"
+  default     = "us-east-1"
 }
 
 variable "function_name" {
@@ -13,5 +13,5 @@ variable "function_name" {
 variable "memory_size" {
   description = "Lambda memory size in MB (CPU allocated proportionally)"
   type        = number
-  default     = 3008 # AWS Account Limit
+  default     = 8192
 }
