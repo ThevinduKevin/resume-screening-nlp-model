@@ -9,8 +9,8 @@ output "function_name" {
 }
 
 output "function_url" {
-  description = "Lambda function URL"
-  value       = aws_lambda_function_url.ml_api_url.function_url
+  description = "The URL of the API Gateway"
+  value       = aws_apigatewayv2_stage.lambda_stage.invoke_url
 }
 
 

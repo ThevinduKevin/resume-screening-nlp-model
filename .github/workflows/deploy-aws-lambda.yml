@@ -120,16 +120,17 @@ jobs:
 
       - name: Wait for API to be ready
         run: |
+          # Wait for API Gateway to propagate
           echo "Waiting for Lambda API to be ready at $FUNCTION_URL..."
           for i in {1..30}; do
-            HTTP_CODE=$(curl -s -o /tmp/response.txt -w "%{http_code}" "${FUNCTION_URL}ping" 2>/dev/null || echo "000")
+            HTTP_CODE=$(curl -s -o /tmp/response.txt -w "%{http_code}" -L "${FUNCTION_URL}ping" 2>/dev/null || echo "000")
             if [ "$HTTP_CODE" = "200" ]; then
-              echo "Container is UP (/ping success)! Now checking /health..."
-              curl -s "${FUNCTION_URL}health"
+              echo "API Gateway is UP (/ping success)! Now checking /health..."
+              curl -s -L "${FUNCTION_URL}health"
               break
             fi
             echo "Attempt $i/30: HTTP $HTTP_CODE, waiting 10s..."
-            cat /tmp/response.txt 2>/dev/null || true
+            cat /tmp/response.txt
             echo ""
             sleep 10
           done
