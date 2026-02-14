@@ -110,6 +110,7 @@ resource "aws_lambda_function" "ml_api" {
   image_uri     = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
   timeout       = 300
   memory_size   = var.memory_size
+  architectures = ["x86_64"]
 
   environment {
     variables = {

@@ -131,5 +131,9 @@ async def health_check():
         return {"status": "unhealthy", "error": model_load_error}
     return {"status": "healthy", "model": "loaded"}
 
+@app.get("/ping")
+async def ping():
+    return {"status": "pong", "runtime": "aws-lambda"}
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
