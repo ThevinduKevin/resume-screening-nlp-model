@@ -63,6 +63,8 @@ resource "azurerm_container_app_environment" "env" {
   workload_profile {
     name                  = "Dedicated-D4"
     workload_profile_type = "D4" # General Purpose (4 vCPU / 16 GiB)
+    maximum_count         = 10
+    minimum_count         = 0
   }
 
   depends_on = [terraform_data.register_providers]
