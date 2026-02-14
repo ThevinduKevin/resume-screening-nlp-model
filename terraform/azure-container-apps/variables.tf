@@ -30,19 +30,19 @@ variable "app_name" {
 variable "cpu_cores" {
   description = "CPU cores for the container"
   type        = number
-  default     = 2.0  # 2 vCPU to match VM/K8s
+  default     = 2.0 # 2 vCPU to match VM/K8s
 }
 
 variable "memory_size" {
   description = "Memory size for the container"
   type        = string
-  default     = "4Gi"  # Max for 2 CPU on Consumption plan (valid combos end at 2.0/4.0Gi)
+  default     = "8Gi"
 }
 
 variable "min_replicas" {
   description = "Minimum number of replicas"
   type        = number
-  default     = 0  # Scale to zero
+  default     = 0 # Scale to zero
 }
 
 variable "max_replicas" {

@@ -13,5 +13,5 @@ variable "function_name" {
 variable "memory_size" {
   description = "Lambda memory size in MB (CPU allocated proportionally)"
   type        = number
-  default     = 3008  # Lambda maximum is 3008 MB
+  default     = 8192 # 8GB Memory (approx 4-5 vCPUs)
 }
