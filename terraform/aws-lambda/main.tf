@@ -137,6 +137,7 @@ resource "aws_apigatewayv2_api" "lambda_api" {
     allow_methods = ["GET", "POST"]
     allow_headers = ["*"]
   }
+  depends_on = [time_sleep.wait_for_iam_propagation]
 }
 
 resource "aws_apigatewayv2_stage" "lambda_stage" {
