@@ -13,14 +13,9 @@ class ResumeAPIUser(HttpUser):
 
     @task(4)
     def predict_text(self):
-        """Primary load test - text endpoint"""
-        # Explicitly set headers to avoid 422 Unprocessable Entity
-        headers = {"Content-Type": "application/json"}
         self.client.post(
-            "/predict/text", 
-            params={"resume_text": random.choice(self.sample_resumes)},
-            json={}, # Send empty JSON body to satisfy potential requirements
-            headers=headers
+            "/predict/text",
+            json={"resume_text": random.choice(self.sample_resumes)}
         )
 
     @task(1)

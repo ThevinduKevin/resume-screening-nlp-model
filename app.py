@@ -106,16 +106,17 @@ async def predict_resume(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
+class TextRequest(BaseModel):
+    resume_text: str
+
 @app.post("/predict/text")
-async def predict_resume_text(resume_text: str = Query(...)):
-    """Direct text input for testing"""
+async def predict_resume_text(request: TextRequest):
     start_time = time.time()
-    
     try:
         if model_load_error:
             raise HTTPException(status_code=500, detail=f"Model not loaded: {model_load_error}")
 
-        category = pred(resume_text)
+        category = pred(request.resume_text)
         processing_time = (time.time() - start_time) * 1000
         
         return {
