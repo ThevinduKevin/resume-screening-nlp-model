@@ -1,5 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
+from fastapi import Query
 import pickle
 import docx
 import PyPDF2
@@ -106,7 +107,7 @@ async def predict_resume(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
 @app.post("/predict/text")
-async def predict_resume_text(resume_text: str):
+async def predict_resume_text(resume_text: str = Query(...)):
     """Direct text input for testing"""
     start_time = time.time()
     
