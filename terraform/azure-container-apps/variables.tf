@@ -36,7 +36,7 @@ variable "cpu_cores" {
 variable "memory_size" {
   description = "Memory size for the container"
   type        = string
-  default     = "8Gi"
+  default     = "4Gi" # 4GB Memory (Max allowed for 2 vCPU)
 }
 
 variable "min_replicas" {
