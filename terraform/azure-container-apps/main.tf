@@ -95,7 +95,7 @@ resource "azurerm_container_app" "ml_api" {
       name   = "ml-api"
       image  = "${azurerm_container_registry.acr.login_server}/ml-resume-api:latest"
       cpu    = var.cpu_cores
-      memory = var.memory_size
+      memory = "4Gi" # Hardcoded to fix persistent variable override issue
 
       env {
         name  = "ENVIRONMENT"

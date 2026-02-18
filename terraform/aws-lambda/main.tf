@@ -110,7 +110,7 @@ resource "aws_lambda_function" "ml_api" {
   package_type  = "Image"
   image_uri     = "${aws_ecr_repository.lambda_repo.repository_url}:latest"
   timeout       = 300
-  memory_size   = var.memory_size
+  memory_size   = 3008 # Hardcoded to fix persistent variable override issue
   architectures = ["x86_64"]
 
   environment {
