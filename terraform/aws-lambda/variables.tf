@@ -13,5 +13,5 @@ variable "function_name" {
 variable "memory_size" {
   description = "Lambda memory size in MB (CPU allocated proportionally)"
   type        = number
-  default     = 3008 # 3GB Memory (Max allowed for new accounts/regions sometimes)
+  default     = 3008 # AWS Account Limit
 }

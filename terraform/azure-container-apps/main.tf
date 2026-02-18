@@ -55,6 +55,18 @@ resource "azurerm_container_app_environment" "env" {
   location                   = azurerm_resource_group.rg.location
   log_analytics_workspace_id = azurerm_log_analytics_workspace.logs.id
 
+  workload_profile {
+    name                  = "Consumption"
+    workload_profile_type = "Consumption"
+  }
+
+  workload_profile {
+    name                  = "Dedicated-D4"
+    workload_profile_type = "D4" # General Purpose (4 vCPU / 16 GiB)
+    maximum_count         = 10
+    minimum_count         = 0
+  }
+
   depends_on = [terraform_data.register_providers]
 }
 
@@ -64,6 +76,8 @@ resource "azurerm_container_app" "ml_api" {
   container_app_environment_id = azurerm_container_app_environment.env.id
   resource_group_name          = azurerm_resource_group.rg.name
   revision_mode                = "Single"
+
+  workload_profile_name = "Dedicated-D4"
 
   registry {
     server               = azurerm_container_registry.acr.login_server
@@ -105,11 +119,11 @@ resource "azurerm_container_app" "ml_api" {
       }
 
       startup_probe {
-        path             = "/health"
-        port             = 8000
-        transport        = "HTTP"
-        interval_seconds = 10
-        timeout          = 5
+        path                    = "/health"
+        port                    = 8000
+        transport               = "HTTP"
+        interval_seconds        = 10
+        timeout                 = 5
         failure_count_threshold = 10
       }
     }
